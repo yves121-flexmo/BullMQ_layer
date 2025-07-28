@@ -434,17 +434,26 @@ mailManager.startWorker('my-queue', customHandlers);
 
 ```
 bullMQ_examples/
-├── core/                    # Architecture principale
-│   ├── MailManager.js      # Interface unifiée
+├── core/                    # 🔧 Composants BullMQ (réutilisables)
+│   ├── MailManager.js      # Interface unifiée BullMQ
 │   ├── QueueManager.js     # Gestion queues + schedulers
 │   ├── WorkerManager.js    # Gestion workers + handlers
 │   ├── EventManager.js     # Système d'événements
 │   └── FlowManager.js      # Workflows complexes
-├── examples/               # Exemples d'utilisation
-│   └── basic-usage.js      # Exemples complets
-├── scheduler.js            # Exemple de planification
-└── main.js                 # Interface Bull Board
+├── services/               # 🏢 Services métier (logique applicative)
+│   └── RemboursementMailService.js  # Service rappels remboursements
+├── examples/               # 📚 Exemples d'utilisation
+│   ├── basic-usage.js      # Exemples core BullMQ
+│   └── remboursement-service-usage.js  # Exemples service métier
+├── index.js                # 🚪 Point d'entrée principal
+└── main.js                 # 🖥️ Interface Bull Board (monitoring)
 ```
+
+### 🔄 **Architecture Séparée**
+
+- **`core/`** : Composants BullMQ purs, réutilisables dans tout projet
+- **`services/`** : Logique métier spécifique (remboursements, etc.)
+- **Séparation claire** : Les services utilisent les composants core
 
 ## 🧪 Tests et Exemples
 
@@ -500,16 +509,26 @@ Le projet inclut `RemboursementMailManager`, une spécialisation du MailManager 
 #### 📅 **Planification Automatique**
 
 ```javascript
-const RemboursementMailManager = require('./core/RemboursementMailManager');
+const RemboursementMailService = require('./services/RemboursementMailService');
 
-const reminderManager = new RemboursementMailManager({
-  redis: { host: 'localhost', port: 6379 },
+const reminderService = new RemboursementMailService({
+  // Configuration avec variables d'environnement
+  redis: {
+    url: process.env.REDIS_URL || 'redis://localhost:6379'
+  },
+  mongo: {
+    uri: process.env.MONGO_URI // Pour logs en production
+  },
+  isProduction: process.env.NODE_ENV === 'production',
+  
+  // Services à injecter
   reimbursementService: yourReimbursementService,
   managerService: yourManagerService,
-  emailService: yourEmailService
+  emailService: yourEmailService,
+  loggerService: yourLoggerService
 });
 
-await reminderManager.initializeReminderSystem();
+await reminderService.initialize();
 // Le système fonctionne maintenant automatiquement !
 ```
 
@@ -590,24 +609,36 @@ reminderManager.onEvent('corporate-reminders', 'failed', (data) => {
 #### 🧪 **Test du Système**
 
 ```bash
-# Test avec données mock
-node examples/remboursement-usage.js
+# Test développement avec logs
+node examples/remboursement-service-usage.js
 
-# Test du monitoring
-node examples/remboursement-usage.js monitoring
+# Test production (logs réduits + MongoDB)
+node examples/remboursement-service-usage.js production
 
-# Configuration production
-node examples/remboursement-usage.js production
+# Test avec variables d'environnement
+node examples/remboursement-service-usage.js env
+
+# Guide d'intégration
+node examples/remboursement-service-usage.js integration
 ```
 
 ## 🚀 Intégration dans une Application Existante
 
+### 🔧 **Intégration Core BullMQ**
 1. **Copier le dossier `core/`** dans votre projet
 2. **Installer les dépendances** : `npm install bullmq ioredis`
-3. **Initialiser MailManager** dans votre application
-4. **Remplacer les appels BullMQ** par l'interface MailManager
-5. **Configurer les handlers** pour vos types d'emails
-6. **Pour les rappels** : Utiliser `RemboursementMailManager` avec vos services
+3. **Utiliser MailManager** pour vos besoins BullMQ génériques
+
+### 🏢 **Intégration Services Métier**
+1. **Copier `core/` + `services/`** dans votre projet
+2. **Configurer les variables d'environnement** :
+   ```bash
+   REDIS_URL=redis://user:pass@host:port
+   MONGO_URI=mongodb://host:port/database  # Optionnel
+   NODE_ENV=production  # Pour logs réduits
+   ```
+3. **Utiliser RemboursementMailService** avec vos services injectés
+4. **Le système fonctionne automatiquement** avec les cron jobs !
 
 ## 📋 API Référence
 

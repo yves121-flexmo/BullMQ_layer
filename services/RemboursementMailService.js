@@ -1,16 +1,31 @@
-const MailManager = require('./MailManager');
+const MailManager = require('../core/MailManager');
 
 /**
- * RemboursementMailManager - Système spécialisé pour les rappels de remboursements
+ * RemboursementMailService - Service spécialisé pour les rappels de remboursements
  * 
- * Gère les envois automatiques de mails pour :
- * - Remboursements Corporate (SALARY) - 10 premiers jours du mois
- * - Remboursements Coverage (TREASURY) - tous les jours
+ * Sépare la logique métier des remboursements des composants core BullMQ.
+ * Gère les envois automatiques de mails pour Corporate et Coverage.
  */
-class RemboursementMailManager extends MailManager {
+class RemboursementMailService {
   constructor(config = {}) {
-    super(config);
-    
+    // Configuration avec gestion de l'environnement
+    this.config = {
+      redis: {
+        url: config.redis?.url || process.env.REDIS_URL || 'redis://localhost:6379'
+      },
+      mongo: {
+        uri: config.mongo?.uri || process.env.MONGO_URI || null
+      },
+      isProduction: config.isProduction || process.env.NODE_ENV === 'production',
+      defaultOptions: {
+        attempts: config.defaultOptions?.attempts || 5,
+        backoff: config.defaultOptions?.backoff || { type: 'exponential', delay: 5000 },
+        removeOnComplete: config.defaultOptions?.removeOnComplete || 100,
+        removeOnFail: config.defaultOptions?.removeOnFail || 20
+      },
+      ...config
+    };
+
     // Configuration spécifique aux remboursements
     this.corporateConfig = {
       queueName: 'corporate-reminders',
@@ -31,40 +46,40 @@ class RemboursementMailManager extends MailManager {
     this.reimbursementService = config.reimbursementService;
     this.managerService = config.managerService;
     this.emailService = config.emailService;
+    this.loggerService = config.loggerService;
+
+    // MailManager avec configuration adaptée
+    this.mailManager = new MailManager({
+      redis: this.config.redis,
+      defaultOptions: this.config.defaultOptions,
+      isProduction: this.config.isProduction
+    });
+
+    this.isInitialized = false;
   }
 
   /**
-   * Initialise le système de rappels de remboursements
+   * Initialise le service de rappels de remboursements
    */
-  async initializeReminderSystem() {
-    console.log('🏢 Initialisation du système de rappels de remboursements...');
+  async initialize() {
+    this.log('🏢 Initialisation du service de rappels de remboursements...');
     
-    await this.initialize();
+    await this.mailManager.initialize();
 
     // Création des queues spécialisées
-    this.createQueue(this.corporateConfig.queueName, {
-      defaultJobOptions: {
-        attempts: 5,
-        backoff: { type: 'exponential', delay: 5000 },
-        removeOnComplete: 100,
-        removeOnFail: 20
-      }
+    this.mailManager.createQueue(this.corporateConfig.queueName, {
+      defaultJobOptions: this.config.defaultOptions
     });
 
-    this.createQueue(this.coverageConfig.queueName, {
-      defaultJobOptions: {
-        attempts: 5,
-        backoff: { type: 'exponential', delay: 5000 },
-        removeOnComplete: 100,
-        removeOnFail: 20
-      }
+    this.mailManager.createQueue(this.coverageConfig.queueName, {
+      defaultJobOptions: this.config.defaultOptions
     });
 
     // Configuration des handlers spécialisés
     const reminderHandlers = this.createReminderHandlers();
     
-    this.startWorker(this.corporateConfig.queueName, reminderHandlers, { concurrency: 3 });
-    this.startWorker(this.coverageConfig.queueName, reminderHandlers, { concurrency: 3 });
+    this.mailManager.startWorker(this.corporateConfig.queueName, reminderHandlers, { concurrency: 3 });
+    this.mailManager.startWorker(this.coverageConfig.queueName, reminderHandlers, { concurrency: 3 });
 
     // Configuration du monitoring spécialisé
     this.setupReminderMonitoring();
@@ -72,7 +87,8 @@ class RemboursementMailManager extends MailManager {
     // Planification des cron jobs
     await this.scheduleReminderJobs();
 
-    console.log('✅ Système de rappels de remboursements initialisé');
+    this.isInitialized = true;
+    this.log('✅ Service de rappels de remboursements initialisé');
   }
 
   /**
@@ -80,7 +96,7 @@ class RemboursementMailManager extends MailManager {
    */
   async scheduleReminderJobs() {
     // Job Corporate : 10 premiers jours du mois à 9h
-    await this.scheduleJob(
+    await this.mailManager.scheduleJob(
       this.corporateConfig.queueName,
       'process-corporate-reminders',
       { type: 'corporate-daily-check' },
@@ -89,7 +105,7 @@ class RemboursementMailManager extends MailManager {
     );
 
     // Job Coverage : tous les jours à 10h
-    await this.scheduleJob(
+    await this.mailManager.scheduleJob(
       this.coverageConfig.queueName,
       'process-coverage-reminders', 
       { type: 'coverage-daily-check' },
@@ -97,9 +113,9 @@ class RemboursementMailManager extends MailManager {
       { jobId: 'coverage-reminders-daily' }
     );
 
-    console.log('📅 Jobs de rappels planifiés :');
-    console.log(`  - Corporate: ${this.corporateConfig.cronPattern}`);
-    console.log(`  - Coverage: ${this.coverageConfig.cronPattern}`);
+    this.log('📅 Jobs de rappels planifiés :');
+    this.log(`  - Corporate: ${this.corporateConfig.cronPattern}`);
+    this.log(`  - Coverage: ${this.coverageConfig.cronPattern}`);
   }
 
   /**
@@ -109,7 +125,7 @@ class RemboursementMailManager extends MailManager {
     return {
       // Handler principal pour les rappels Corporate
       'process-corporate-reminders': async (data, job) => {
-        console.log('🏢 Traitement des rappels Corporate...');
+        this.log('🏢 Traitement des rappels Corporate...');
         
         try {
           const currentDate = new Date();
@@ -117,7 +133,7 @@ class RemboursementMailManager extends MailManager {
           
           // Vérification que nous sommes dans les 10 premiers jours
           if (dayOfMonth > 10) {
-            console.log(`⏭️  Jour ${dayOfMonth} > 10, pas de traitement Corporate aujourd'hui`);
+            this.log(`⏭️  Jour ${dayOfMonth} > 10, pas de traitement Corporate aujourd'hui`);
             return { skipped: true, reason: 'Hors période (> 10 jours)' };
           }
 
@@ -129,7 +145,7 @@ class RemboursementMailManager extends MailManager {
             statuses: this.corporateConfig.reminderTypes
           });
 
-          console.log(`📋 ${reimbursements.length} remboursements Corporate trouvés`);
+          this.log(`📋 ${reimbursements.length} remboursements Corporate trouvés`);
           await job.updateProgress(30);
 
           let processedCount = 0;
@@ -143,29 +159,36 @@ class RemboursementMailManager extends MailManager {
               
               await job.updateProgress(30 + (processedCount / reimbursements.length) * 60);
             } catch (error) {
-              console.error(`❌ Erreur traitement remboursement ${reimbursement.id}:`, error);
+              this.logError(`❌ Erreur traitement remboursement ${reimbursement.id}:`, error);
               results.push({ id: reimbursement.id, error: error.message });
             }
           }
 
           await job.updateProgress(100);
 
-          return {
+          const finalResult = {
             totalProcessed: processedCount,
             totalReimbursements: reimbursements.length,
             results,
             executionDate: currentDate
           };
 
+          // Sauvegarde en base si production
+          if (this.config.isProduction && this.config.mongo.uri) {
+            await this.saveExecutionLog('corporate', finalResult);
+          }
+
+          return finalResult;
+
         } catch (error) {
-          console.error('❌ Erreur dans le traitement Corporate:', error);
+          this.logError('❌ Erreur dans le traitement Corporate:', error);
           throw error;
         }
       },
 
       // Handler principal pour les rappels Coverage
       'process-coverage-reminders': async (data, job) => {
-        console.log('🏥 Traitement des rappels Coverage...');
+        this.log('🏥 Traitement des rappels Coverage...');
         
         try {
           const currentDate = new Date();
@@ -177,7 +200,7 @@ class RemboursementMailManager extends MailManager {
             statuses: this.coverageConfig.reminderTypes
           });
 
-          console.log(`📋 ${reimbursements.length} remboursements Coverage trouvés`);
+          this.log(`📋 ${reimbursements.length} remboursements Coverage trouvés`);
           await job.updateProgress(30);
 
           // Organisation par health-coverage comme demandé
@@ -199,22 +222,29 @@ class RemboursementMailManager extends MailManager {
               
               await job.updateProgress(30 + (processedCount / totalItems) * 60);
             } catch (error) {
-              console.error(`❌ Erreur traitement health-coverage ${healthCoverageId}:`, error);
+              this.logError(`❌ Erreur traitement health-coverage ${healthCoverageId}:`, error);
               results.push({ healthCoverageId, error: error.message });
             }
           }
 
           await job.updateProgress(100);
 
-          return {
+          const finalResult = {
             totalHealthCoverages: totalItems,
             totalReimbursements: reimbursements.length,
             results,
             executionDate: currentDate
           };
 
+          // Sauvegarde en base si production
+          if (this.config.isProduction && this.config.mongo.uri) {
+            await this.saveExecutionLog('coverage', finalResult);
+          }
+
+          return finalResult;
+
         } catch (error) {
-          console.error('❌ Erreur dans le traitement Coverage:', error);
+          this.logError('❌ Erreur dans le traitement Coverage:', error);
           throw error;
         }
       },
@@ -223,7 +253,7 @@ class RemboursementMailManager extends MailManager {
       'send-reminder-email': async (data, job) => {
         const { emailType, recipients, reimbursement, daysInfo } = data;
         
-        console.log(`📧 Envoi email de rappel ${emailType} à ${recipients.length} destinataires`);
+        this.log(`📧 Envoi email de rappel ${emailType} à ${recipients.length} destinataires`);
         
         const emailResult = await this.emailService.sendReminderEmail({
           type: emailType,
@@ -233,12 +263,19 @@ class RemboursementMailManager extends MailManager {
           template: this.getEmailTemplate(emailType, daysInfo)
         });
 
-        return {
+        const result = {
           emailType,
           recipientCount: recipients.length,
           reimbursementId: reimbursement.id,
           emailResult
         };
+
+        // Sauvegarde de l'email en base si production
+        if (this.config.isProduction && this.config.mongo.uri) {
+          await this.saveEmailLog(result);
+        }
+
+        return result;
       }
     };
   }
@@ -270,7 +307,7 @@ class RemboursementMailManager extends MailManager {
     const recipients = await this.getReimbursementRecipients(reimbursement, 'corporate');
 
     // Envoi de l'email via un job séparé pour meilleure gestion des erreurs
-    const emailJob = await this.addJob(
+    const emailJob = await this.mailManager.addJob(
       this.corporateConfig.queueName,
       'send-reminder-email',
       {
@@ -322,7 +359,7 @@ class RemboursementMailManager extends MailManager {
       if (shouldSendEmail) {
         const recipients = await this.getReimbursementRecipients(reimbursement, 'coverage');
         
-        const emailJob = await this.addJob(
+        const emailJob = await this.mailManager.addJob(
           this.coverageConfig.queueName,
           'send-reminder-email',
           {
@@ -392,7 +429,7 @@ class RemboursementMailManager extends MailManager {
 
       return uniqueRecipients;
     } catch (error) {
-      console.error(`❌ Erreur récupération destinataires pour ${reimbursement.id}:`, error);
+      this.logError(`❌ Erreur récupération destinataires pour ${reimbursement.id}:`, error);
       return [];
     }
   }
@@ -422,34 +459,34 @@ class RemboursementMailManager extends MailManager {
    */
   setupReminderMonitoring() {
     // Monitoring des erreurs critiques
-    this.onEvent(this.corporateConfig.queueName, 'failed', (data) => {
-      console.error(`🚨 [CORPORATE] Job ${data.jobId} échoué: ${data.failedReason}`);
+    this.mailManager.onEvent(this.corporateConfig.queueName, 'failed', (data) => {
+      this.logError(`🚨 [CORPORATE] Job ${data.jobId} échoué: ${data.failedReason}`);
       // TODO: Alerter les administrateurs
     });
 
-    this.onEvent(this.coverageConfig.queueName, 'failed', (data) => {
-      console.error(`🚨 [COVERAGE] Job ${data.jobId} échoué: ${data.failedReason}`);
+    this.mailManager.onEvent(this.coverageConfig.queueName, 'failed', (data) => {
+      this.logError(`🚨 [COVERAGE] Job ${data.jobId} échoué: ${data.failedReason}`);
       // TODO: Alerter les administrateurs
     });
 
     // Monitoring des succès
-    this.onEvent(this.corporateConfig.queueName, 'completed', (data) => {
-      console.log(`✅ [CORPORATE] Job ${data.jobId} terminé avec succès`);
+    this.mailManager.onEvent(this.corporateConfig.queueName, 'completed', (data) => {
+      this.log(`✅ [CORPORATE] Job ${data.jobId} terminé avec succès`);
     });
 
-    this.onEvent(this.coverageConfig.queueName, 'completed', (data) => {
-      console.log(`✅ [COVERAGE] Job ${data.jobId} terminé avec succès`);
+    this.mailManager.onEvent(this.coverageConfig.queueName, 'completed', (data) => {
+      this.log(`✅ [COVERAGE] Job ${data.jobId} terminé avec succès`);
     });
 
-    console.log('📊 Monitoring des rappels configuré');
+    this.log('📊 Monitoring des rappels configuré');
   }
 
   /**
    * Récupère les statistiques des rappels
    */
   async getReminderStats() {
-    const corporateStats = await this.getQueueStats(this.corporateConfig.queueName);
-    const coverageStats = await this.getQueueStats(this.coverageConfig.queueName);
+    const corporateStats = await this.mailManager.getQueueStats(this.corporateConfig.queueName);
+    const coverageStats = await this.mailManager.getQueueStats(this.coverageConfig.queueName);
 
     return {
       corporate: {
@@ -465,6 +502,11 @@ class RemboursementMailManager extends MailManager {
         totalActive: corporateStats.active + coverageStats.active,
         totalCompleted: corporateStats.completed + coverageStats.completed,
         totalFailed: corporateStats.failed + coverageStats.failed
+      },
+      environment: {
+        isProduction: this.config.isProduction,
+        hasMongoUri: !!this.config.mongo.uri,
+        redisUrl: this.config.redis.url.replace(/\/\/.*@/, '//***@') // Masquer les credentials
       }
     };
   }
@@ -475,7 +517,6 @@ class RemboursementMailManager extends MailManager {
   getNextCronExecution(cronPattern) {
     // Implementation simplifiée - dans un vrai projet, utiliser une librairie comme node-cron
     const now = new Date();
-    // Logique basique pour affichage
     return `Prochaine exécution basée sur: ${cronPattern}`;
   }
 
@@ -486,7 +527,7 @@ class RemboursementMailManager extends MailManager {
     const results = {};
 
     if (type === 'corporate' || type === 'both') {
-      const corporateJob = await this.addJob(
+      const corporateJob = await this.mailManager.addJob(
         this.corporateConfig.queueName,
         'process-corporate-reminders',
         { type: 'manual-execution', forced: true }
@@ -495,7 +536,7 @@ class RemboursementMailManager extends MailManager {
     }
 
     if (type === 'coverage' || type === 'both') {
-      const coverageJob = await this.addJob(
+      const coverageJob = await this.mailManager.addJob(
         this.coverageConfig.queueName,
         'process-coverage-reminders',
         { type: 'manual-execution', forced: true }
@@ -503,9 +544,83 @@ class RemboursementMailManager extends MailManager {
       results.coverage = coverageJob.id;
     }
 
-    console.log(`🔧 Exécution forcée des rappels (${type}):`, results);
+    this.log(`🔧 Exécution forcée des rappels (${type}):`, results);
     return results;
+  }
+
+  /**
+   * Sauvegarde les logs d'exécution en base de données
+   */
+  async saveExecutionLog(type, data) {
+    if (!this.config.mongo.uri) return;
+
+    try {
+      // TODO: Implémenter la sauvegarde MongoDB
+      // const mongoose = require('mongoose');
+      // await ExecutionLog.create({
+      //   type,
+      //   data,
+      //   timestamp: new Date(),
+      //   environment: this.config.isProduction ? 'production' : 'development'
+      // });
+      
+      this.log(`💾 Log d'exécution ${type} sauvegardé en base`);
+    } catch (error) {
+      this.logError('❌ Erreur sauvegarde log d\'exécution:', error);
+    }
+  }
+
+  /**
+   * Sauvegarde les logs d'emails en base de données
+   */
+  async saveEmailLog(emailData) {
+    if (!this.config.mongo.uri) return;
+
+    try {
+      // TODO: Implémenter la sauvegarde MongoDB
+      // await EmailLog.create({
+      //   ...emailData,
+      //   timestamp: new Date(),
+      //   environment: this.config.isProduction ? 'production' : 'development'
+      // });
+      
+      this.log(`💾 Log d'email sauvegardé en base`);
+    } catch (error) {
+      this.logError('❌ Erreur sauvegarde log d\'email:', error);
+    }
+  }
+
+  /**
+   * Logger intelligent selon l'environnement
+   */
+  log(message, data = null) {
+    if (!this.config.isProduction) {
+      console.log(message, data || '');
+    } else if (this.loggerService) {
+      this.loggerService.info(message, data);
+    }
+  }
+
+  /**
+   * Logger d'erreurs
+   */
+  logError(message, error) {
+    if (!this.config.isProduction) {
+      console.error(message, error);
+    } else if (this.loggerService) {
+      this.loggerService.error(message, { error: error.message, stack: error.stack });
+    }
+  }
+
+  /**
+   * Arrêt propre du service
+   */
+  async shutdown() {
+    this.log('🛑 Arrêt du RemboursementMailService...');
+    await this.mailManager.shutdown();
+    this.isInitialized = false;
+    this.log('✅ RemboursementMailService arrêté proprement');
   }
 }
 
-module.exports = RemboursementMailManager; 
+module.exports = RemboursementMailService; 

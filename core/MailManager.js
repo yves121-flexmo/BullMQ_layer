@@ -13,10 +13,9 @@ class MailManager {
   constructor(config = {}) {
     this.config = {
       redis: {
-        host: config.redis?.host || 'localhost',
-        port: config.redis?.port || 6379,
         url: config.redis?.url || process.env.REDIS_URL || 'redis://localhost:6379'
       },
+      isProduction: config.isProduction || process.env.NODE_ENV === 'production',
       defaultOptions: {
         attempts: config.defaultOptions?.attempts || 3,
         backoff: config.defaultOptions?.backoff || { type: 'fixed', delay: 5000 },
@@ -84,7 +83,7 @@ class MailManager {
     const jobOptions = { ...this.config.defaultOptions, ...options };
     const job = await queue.add(jobName, data, jobOptions);
     
-    console.log(`📤 Job "${jobName}" ajouté à la queue "${queueName}" (ID: ${job.id})`);
+    this.log(`📤 Job "${jobName}" ajouté à la queue "${queueName}" (ID: ${job.id})`);
     return job;
   }
 
@@ -105,7 +104,7 @@ class MailManager {
     };
 
     const job = await queue.add(jobName, data, jobOptions);
-    console.log(`⏰ Job "${jobName}" planifié sur "${queueName}" avec le pattern: ${cronPattern}`);
+    this.log(`⏰ Job "${jobName}" planifié sur "${queueName}" avec le pattern: ${cronPattern}`);
     return job;
   }
 
@@ -165,14 +164,14 @@ class MailManager {
     await queue.clean(24 * 3600 * 1000, cleanOptions.limit, 'completed');
     await queue.clean(24 * 3600 * 1000, cleanOptions.limit, 'failed');
     
-    console.log(`🧹 Queue "${queueName}" nettoyée`);
+    this.log(`🧹 Queue "${queueName}" nettoyée`);
   }
 
   /**
    * Arrête proprement tous les composants
    */
   async shutdown() {
-    console.log('🛑 Arrêt du MailManager...');
+    this.log('🛑 Arrêt du MailManager...');
     
     await this.workerManager.shutdown();
     await this.queueManager.shutdown();
@@ -180,7 +179,25 @@ class MailManager {
     await this.flowManager.shutdown();
     
     this.isInitialized = false;
-    console.log('✅ MailManager arrêté proprement');
+    this.log('✅ MailManager arrêté proprement');
+  }
+
+  /**
+   * Logger intelligent selon l'environnement
+   */
+  log(message, data = null) {
+    if (!this.config.isProduction) {
+      console.log(message, data || '');
+    }
+  }
+
+  /**
+   * Logger d'erreurs
+   */
+  logError(message, error) {
+    if (!this.config.isProduction) {
+      console.error(message, error);
+    }
   }
 
   /**
