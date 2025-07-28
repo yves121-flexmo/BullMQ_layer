@@ -1,17 +1,16 @@
-const { Queue, QueueScheduler } = require('bullmq');
+const { Queue } = require('bullmq');
 
 /**
- * QueueManager - Gère toutes les queues et leurs schedulers
+ * QueueManager - Gère toutes les queues
  * 
  * Centralise la création et la gestion des queues BullMQ.
- * Un scheduler est automatiquement créé pour chaque queue pour gérer
- * les jobs delayed et recurring.
+ * Note: Dans les versions récentes de BullMQ, le scheduler est intégré 
+ * directement dans la Queue, plus besoin de QueueScheduler séparé.
  */
 class QueueManager {
   constructor(config) {
     this.config = config;
     this.queues = new Map();
-    this.schedulers = new Map();
     this.connection = config.redis;
   }
 
@@ -25,7 +24,7 @@ class QueueManager {
   }
 
   /**
-   * Crée une nouvelle queue avec son scheduler associé
+   * Crée une nouvelle queue
    */
   createQueue(queueName, options = {}) {
     if (this.queues.has(queueName)) {
@@ -44,26 +43,15 @@ class QueueManager {
       ...options
     };
 
-    // Création de la queue
+    // Création de la queue (scheduler intégré automatiquement)
     const queue = new Queue(queueName, queueOptions);
     this.queues.set(queueName, queue);
 
-    // Création du scheduler associé (nécessaire pour les jobs delayed/recurring)
-    const scheduler = new QueueScheduler(queueName, { 
-      connection: this.connection,
-      ...options.schedulerOptions 
-    });
-    this.schedulers.set(queueName, scheduler);
-
-    console.log(`✅ Queue "${queueName}" créée avec son scheduler`);
+    console.log(`✅ Queue "${queueName}" créée (scheduler intégré)`);
 
     // Gestion des erreurs
     queue.on('error', (error) => {
       console.error(`❌ Erreur queue "${queueName}":`, error);
-    });
-
-    scheduler.on('error', (error) => {
-      console.error(`❌ Erreur scheduler "${queueName}":`, error);
     });
 
     return queue;
@@ -77,13 +65,6 @@ class QueueManager {
   }
 
   /**
-   * Récupère un scheduler existant
-   */
-  getScheduler(queueName) {
-    return this.schedulers.get(queueName);
-  }
-
-  /**
    * Récupère toutes les queues
    */
   getQueues() {
@@ -91,30 +72,16 @@ class QueueManager {
   }
 
   /**
-   * Récupère tous les schedulers
-   */
-  getSchedulers() {
-    return Object.fromEntries(this.schedulers);
-  }
-
-  /**
-   * Supprime une queue et son scheduler
+   * Supprime une queue
    */
   async removeQueue(queueName) {
     const queue = this.queues.get(queueName);
-    const scheduler = this.schedulers.get(queueName);
 
     if (queue) {
       await queue.close();
       this.queues.delete(queueName);
+      console.log(`🗑️  Queue "${queueName}" supprimée`);
     }
-
-    if (scheduler) {
-      await scheduler.close();
-      this.schedulers.delete(queueName);
-    }
-
-    console.log(`🗑️  Queue "${queueName}" et son scheduler supprimés`);
   }
 
   /**
@@ -221,20 +188,10 @@ class QueueManager {
   }
 
   /**
-   * Ferme proprement toutes les queues et schedulers
+   * Ferme proprement toutes les queues
    */
   async shutdown() {
     console.log('🛑 Arrêt du QueueManager...');
-
-    // Fermeture des schedulers
-    for (const [queueName, scheduler] of this.schedulers) {
-      try {
-        await scheduler.close();
-        console.log(`✅ Scheduler "${queueName}" fermé`);
-      } catch (error) {
-        console.error(`❌ Erreur fermeture scheduler "${queueName}":`, error);
-      }
-    }
 
     // Fermeture des queues
     for (const [queueName, queue] of this.queues) {
@@ -247,7 +204,6 @@ class QueueManager {
     }
 
     this.queues.clear();
-    this.schedulers.clear();
     console.log('✅ QueueManager arrêté proprement');
   }
 }

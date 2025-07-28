@@ -185,16 +185,15 @@ await emailQueue.add('send-welcome', { to: 'user@example.com' });
 ```
 **Problème** : Vous devez gérer manuellement la connexion Redis, la configuration, et chaque queue séparément.
 
-#### 2. **QueueScheduler** - Gestion des Jobs Différés/Récurrents
+#### 2. **QueueScheduler** - Gestion des Jobs Différés/Récurrents ⚠️ OBSOLÈTE
 ```javascript
-// BullMQ Natif - OBLIGATOIRE pour les jobs delayed/recurring
+// BullMQ Ancien - QueueScheduler séparé (ne plus utiliser)
 const { QueueScheduler } = require('bullmq');
 const scheduler = new QueueScheduler('emails', { connection: { host: 'localhost', port: 6379 } });
 
-// Sans scheduler = jobs delayed/recurring ne fonctionnent PAS !
-await emailQueue.add('newsletter', data, { repeat: { pattern: '0 9 * * *' } }); // ❌ Échoue sans scheduler
+// ❌ OBSOLÈTE dans les versions récentes de BullMQ
 ```
-**Problème** : Oubli fréquent du scheduler → jobs planifiés qui ne marchent pas.
+**Problème résolu** : QueueScheduler supprimé dans BullMQ v5+, fonctionnalité intégrée dans Queue.
 
 #### 3. **Worker** - Traitement des Jobs
 ```javascript
@@ -243,7 +242,7 @@ await flow.add({
 | Composant BullMQ | Problème Natif | Notre Solution | Avantage |
 |------------------|----------------|----------------|----------|
 | **Queue** | Gestion manuelle séparée | `QueueManager` | ✅ Création centralisée, configuration partagée |
-| **QueueScheduler** | Oubli fréquent | `QueueManager` | ✅ **Créé automatiquement** avec chaque queue |
+| **QueueScheduler** | Obsolète (intégré) | `QueueManager` | ✅ **Fonctionnalité intégrée** dans Queue |
 | **Worker** | Routing manuel des jobs | `WorkerManager` | ✅ Handlers automatiques, routing intelligent |
 | **QueueEvents** | Config répétitive | `EventManager` | ✅ Listeners globaux + spécifiques, monitoring unifié |
 | **FlowProducer** | Configuration verbose | `FlowManager` | ✅ Patterns pré-définis, workflows simplifiés |
@@ -252,12 +251,12 @@ await flow.add({
 
 #### ❌ **BullMQ Natif** (15+ lignes, erreurs fréquentes)
 ```javascript
-const { Queue, QueueScheduler, Worker, QueueEvents } = require('bullmq');
+const { Queue, Worker, QueueEvents } = require('bullmq');
 
 // 1. Configuration répétitive pour chaque composant
 const connection = { host: 'localhost', port: 6379 };
 const emailQueue = new Queue('emails', { connection });
-const scheduler = new QueueScheduler('emails', { connection }); // ⚠️ Souvent oublié !
+// Note: QueueScheduler n'existe plus dans BullMQ v5+ (intégré dans Queue)
 const events = new QueueEvents('emails', { connection });
 
 // 2. Worker avec routing manuel
@@ -277,7 +276,6 @@ events.on('failed', (data) => console.log('Job échoué'));
 // 4. Pas de nettoyage centralisé
 process.on('SIGTERM', async () => {
   await worker.close();
-  await scheduler.close();
   await events.close();
   await emailQueue.close();
 });
@@ -308,7 +306,7 @@ await mailManager.shutdown(); // Ferme TOUT proprement
 BullMQ Natif (Complexe)          Notre Couche (Simple)
 ┌─────────────────────┐         ┌─────────────────────┐
 │ Queue               │────────▶│ QueueManager        │
-│ + QueueScheduler    │         │ (gère les 2)       │
+│ + Scheduler intégré │         │ (gestion unifiée)   │
 │ + Redis Config      │         │                     │
 └─────────────────────┘         └─────────────────────┘
 
@@ -335,7 +333,7 @@ BullMQ Natif (Complexe)          Notre Couche (Simple)
 
 ### ❗ **Points Critiques BullMQ que Notre Architecture Résout**
 
-1. **Scheduler Oublié** ➜ **Auto-création** avec chaque queue
+1. **Scheduler Obsolète** ➜ **Intégré dans Queue** (BullMQ v5+)
 2. **Configuration Redis Répétée** ➜ **Configuration centralisée** 
 3. **Gestion d'Erreurs Manuelle** ➜ **Retry intelligent** intégré
 4. **Monitoring Fragmenté** ➜ **Monitoring unifié** 
@@ -493,6 +491,115 @@ mailManager.createQueue('emails');  // Scheduler créé automatiquement
 mailManager.startWorker('emails', handlers);
 ```
 
+## 🏢 Cas d'Usage Spécialisé : Système de Rappels de Remboursements
+
+### Architecture pour Rappels Automatiques
+
+Le projet inclut `RemboursementMailManager`, une spécialisation du MailManager pour gérer automatiquement les rappels de remboursements selon vos spécifications :
+
+#### 📅 **Planification Automatique**
+
+```javascript
+const RemboursementMailManager = require('./core/RemboursementMailManager');
+
+const reminderManager = new RemboursementMailManager({
+  redis: { host: 'localhost', port: 6379 },
+  reimbursementService: yourReimbursementService,
+  managerService: yourManagerService,
+  emailService: yourEmailService
+});
+
+await reminderManager.initializeReminderSystem();
+// Le système fonctionne maintenant automatiquement !
+```
+
+#### 🏢 **Corporate (SALARY) - Logique Implémentée**
+- **Cron** : `0 9 1-10 * *` (Jours 1-10 du mois à 9h)
+- **Types** : Remboursements SALARY avec statut PENDING/OVERDUE
+- **Logique** :
+  - `dueDate <= aujourd'hui` → Email "paiement en retard" 
+  - `dueDate > aujourd'hui` → Email "rappel avant échéance"
+- **Destinataires** : Owner + 3 plus vieux managers Corporate
+
+#### 🏥 **Coverage (TREASURY) - Logique Implémentée**
+- **Cron** : `0 10 * * *` (Tous les jours à 10h)
+- **Types** : Remboursements TREASURY avec statut PENDING/OVERDUE
+- **Organisation** : Groupés par health-coverage comme demandé
+- **Logique** :
+  - `dueDate <= aujourd'hui` → Email "paiement en retard"
+  - `dueDate <= aujourd'hui + 10 jours` → Email "rappel 10 jours avant"
+  - Sinon → Pas d'email
+- **Destinataires** : Owner + 3 plus vieux managers Coverage
+
+#### 🔧 **Services à Implémenter**
+
+```javascript
+const config = {
+  redis: { host: 'localhost', port: 6379 },
+  reimbursementService: {
+    async getReimbursements({ type, statuses }) {
+      // Retourner les remboursements selon type (SALARY/TREASURY) et statuts
+      return await Reimbursement.find({ 
+        type, 
+        globalStatus: { $in: statuses } 
+      });
+    }
+  },
+  managerService: {
+    async getReimbursementOwner(reimbursementId) {
+      // Retourner le propriétaire du remboursement
+      return await Manager.findOne({ reimbursementId });
+    },
+    async getOldestManagers(type, limit = 3) {
+      // Retourner les 3 plus vieux managers selon le type
+      return await Manager.find({ type })
+        .sort({ createdAt: 1 })
+        .limit(limit);
+    }
+  },
+  emailService: {
+    async sendReminderEmail({ type, recipients, reimbursement, daysInfo, template }) {
+      // Envoyer l'email via votre service (SendGrid, Mailgun, etc.)
+      return await sendEmail({
+        to: recipients.map(r => r.email),
+        subject: template.subject,
+        template: template.template,
+        data: { reimbursement, daysInfo }
+      });
+    }
+  }
+};
+```
+
+#### 📊 **Monitoring et Contrôle**
+
+```javascript
+// Statistiques en temps réel
+const stats = await reminderManager.getReminderStats();
+
+// Exécution forcée pour tests
+await reminderManager.forceReminderExecution('corporate'); // ou 'coverage' ou 'both'
+
+// Monitoring des erreurs
+reminderManager.onEvent('corporate-reminders', 'failed', (data) => {
+  console.error('Erreur Corporate:', data.failedReason);
+  // Alerter les administrateurs
+});
+```
+
+#### 🧪 **Test du Système**
+
+```bash
+# Test avec données mock
+node examples/remboursement-usage.js
+
+# Test du monitoring
+node examples/remboursement-usage.js monitoring
+
+# Configuration production
+node examples/remboursement-usage.js production
+```
+
 ## 🚀 Intégration dans une Application Existante
 
 1. **Copier le dossier `core/`** dans votre projet
@@ -500,6 +607,7 @@ mailManager.startWorker('emails', handlers);
 3. **Initialiser MailManager** dans votre application
 4. **Remplacer les appels BullMQ** par l'interface MailManager
 5. **Configurer les handlers** pour vos types d'emails
+6. **Pour les rappels** : Utiliser `RemboursementMailManager` avec vos services
 
 ## 📋 API Référence
 
