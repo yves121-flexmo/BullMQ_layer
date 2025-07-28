@@ -1,4 +1,5 @@
-const MailManager = require('../core/MailManager');
+const MailManager = require('../managers/MailManager');
+const JobLogger = require('../utils/JobLogger');
 
 /**
  * RemboursementMailService - Service spécialisé pour les rappels de remboursements
@@ -52,7 +53,16 @@ class RemboursementMailService {
     this.mailManager = new MailManager({
       redis: this.config.redis,
       defaultOptions: this.config.defaultOptions,
-      isProduction: this.config.isProduction
+      isProduction: this.config.isProduction,
+      logger: this.config.logger
+    });
+
+    // JobLogger pour métriques globales
+    this.jobLogger = new JobLogger({
+      isProduction: this.config.isProduction,
+      mongo: this.config.mongo,
+      logger: this.config.logger,
+      logLevel: this.config.logLevel || 'info'
     });
 
     this.isInitialized = false;
@@ -83,6 +93,9 @@ class RemboursementMailService {
 
     // Configuration du monitoring spécialisé
     this.setupReminderMonitoring();
+
+    // Attachment du JobLogger pour métriques globales
+    this.jobLogger.attachToBullMQManager(this.mailManager);
 
     // Planification des cron jobs
     await this.scheduleReminderJobs();
@@ -482,11 +495,12 @@ class RemboursementMailService {
   }
 
   /**
-   * Récupère les statistiques des rappels
+   * Récupère les statistiques des rappels avec métriques globales
    */
   async getReminderStats() {
     const corporateStats = await this.mailManager.getQueueStats(this.corporateConfig.queueName);
     const coverageStats = await this.mailManager.getQueueStats(this.coverageConfig.queueName);
+    const globalMetrics = this.jobLogger.getDetailedStats();
 
     return {
       corporate: {
@@ -502,6 +516,13 @@ class RemboursementMailService {
         totalActive: corporateStats.active + coverageStats.active,
         totalCompleted: corporateStats.completed + coverageStats.completed,
         totalFailed: corporateStats.failed + coverageStats.failed
+      },
+      globalMetrics: {
+        ...globalMetrics,
+        specificQueues: {
+          [this.corporateConfig.queueName]: globalMetrics.queues[this.corporateConfig.queueName],
+          [this.coverageConfig.queueName]: globalMetrics.queues[this.coverageConfig.queueName]
+        }
       },
       environment: {
         isProduction: this.config.isProduction,

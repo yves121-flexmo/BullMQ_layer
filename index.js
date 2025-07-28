@@ -1,34 +1,48 @@
 /**
- * BullMQ Mail System - Point d'entrée principal
+ * BullMQ System - Point d'entrée principal
  * 
- * Système unifié pour la gestion des emails asynchrones avec BullMQ
+ * Architecture organisée : Core BullMQ + Managers Métier + Services + Utils
  */
 
-// Composants Core BullMQ
-const MailManager = require('./core/MailManager');
+// === CORE BULLMQ (Réutilisable pour tout projet) ===
+const BullMQManager = require('./core/BullMQManager');
 const QueueManager = require('./core/QueueManager');
 const WorkerManager = require('./core/WorkerManager');
 const EventManager = require('./core/EventManager');
 const FlowManager = require('./core/FlowManager');
 
-// Services métier
+// === MANAGERS MÉTIER (Spécialisés par domaine) ===
+const MailManager = require('./managers/MailManager');
+
+// === SERVICES (Logique applicative) ===
 const RemboursementMailService = require('./services/RemboursementMailService');
 
+// === UTILS (Transversaux) ===
+const JobLogger = require('./utils/JobLogger');
+
 module.exports = {
-  // Composants core
-  MailManager,
+  // === Core BullMQ ===
+  BullMQManager,
   QueueManager,
   WorkerManager,
   EventManager,
   FlowManager,
   
-  // Services métier
+  // === Managers Métier ===
+  MailManager,
+  
+  // === Services ===
   RemboursementMailService,
   
-  // Alias pour compatibilité
+  // === Utils ===
+  JobLogger,
+  
+  // === Alias de compatibilité ===
   RemboursementMailManager: RemboursementMailService, // Ancien nom
   
-  // Utilitaires
+  // === Factory Methods ===
+  createBullMQManager: (config) => new BullMQManager(config),
   createMailManager: (config) => new MailManager(config),
-  createRemboursementService: (config) => new RemboursementMailService(config)
+  createRemboursementService: (config) => new RemboursementMailService(config),
+  createJobLogger: (config) => new JobLogger(config)
 }; 

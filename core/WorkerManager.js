@@ -226,82 +226,49 @@ class WorkerManager {
   }
 
   /**
-   * Crée des handlers pré-définis pour les emails
+   * Crée des handlers génériques d'exemple
    */
-  static createEmailHandlers() {
+  static createSampleHandlers() {
     return {
-      'send-welcome': async (data, job) => {
-        console.log(`📧 Envoi email de bienvenue à ${data.to}`);
+      'process-data': async (data, job) => {
+        console.log(`🔄 Traitement des données: ${data.type || 'non spécifié'}`);
         
-        // Simulation de l'envoi d'email
+        // Simulation du traitement
         await new Promise(resolve => setTimeout(resolve, 1000));
         
-        // Mise à jour du progrès
         if (job.updateProgress) {
-          await job.updateProgress(50);
+          await job.updateProgress(100);
         }
         
-        // Simulation de la finalisation
+        console.log(`✅ Données traitées avec succès`);
+        return { success: true, processedAt: new Date(), dataType: data.type };
+      },
+
+      'generate-report': async (data, job) => {
+        console.log(`📊 Génération de rapport: ${data.reportType}`);
+        
+        // Simulation de la génération
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        
+        if (job.updateProgress) {
+          await job.updateProgress(100);
+        }
+        
+        console.log(`✅ Rapport généré: ${data.reportType}`);
+        return { success: true, reportId: `RPT-${Date.now()}`, type: data.reportType };
+      },
+
+      'cleanup-task': async (data, job) => {
+        console.log(`🧹 Tâche de nettoyage: ${data.target}`);
+        
         await new Promise(resolve => setTimeout(resolve, 500));
         
         if (job.updateProgress) {
           await job.updateProgress(100);
         }
         
-        console.log(`✅ Email de bienvenue envoyé à ${data.to}`);
-        return { success: true, sentTo: data.to, type: 'welcome' };
-      },
-
-      'send-newsletter': async (data, job) => {
-        console.log(`📰 Envoi newsletter à ${data.to}`);
-        
-        // Simulation de la préparation
-        await new Promise(resolve => setTimeout(resolve, 800));
-        
-        if (job.updateProgress) {
-          await job.updateProgress(70);
-        }
-        
-        // Simulation de l'envoi
-        await new Promise(resolve => setTimeout(resolve, 1200));
-        
-        if (job.updateProgress) {
-          await job.updateProgress(100);
-        }
-        
-        console.log(`✅ Newsletter envoyée à ${data.to}`);
-        return { success: true, sentTo: data.to, type: 'newsletter' };
-      },
-
-      'send-reset-password': async (data, job) => {
-        console.log(`🔐 Envoi email de réinitialisation à ${data.to}`);
-        
-        // Validation des données
-        if (!data.resetToken) {
-          throw new Error('Token de réinitialisation manquant');
-        }
-        
-        await new Promise(resolve => setTimeout(resolve, 600));
-        
-        if (job.updateProgress) {
-          await job.updateProgress(100);
-        }
-        
-        console.log(`✅ Email de réinitialisation envoyé à ${data.to}`);
-        return { success: true, sentTo: data.to, type: 'reset-password' };
-      },
-
-      'send-notification': async (data, job) => {
-        console.log(`🔔 Envoi notification à ${data.to}: ${data.subject}`);
-        
-        await new Promise(resolve => setTimeout(resolve, 400));
-        
-        if (job.updateProgress) {
-          await job.updateProgress(100);
-        }
-        
-        console.log(`✅ Notification envoyée à ${data.to}`);
-        return { success: true, sentTo: data.to, type: 'notification' };
+        console.log(`✅ Nettoyage terminé: ${data.target}`);
+        return { success: true, cleanedTarget: data.target, itemsRemoved: Math.floor(Math.random() * 100) };
       }
     };
   }
