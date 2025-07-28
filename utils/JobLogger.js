@@ -1,8 +1,12 @@
+const mongoose = require('mongoose');
+const { JobLog } = require('./models');
+require('dotenv').config();
 /**
  * JobLogger - Système de logs globaux pour jobs BullMQ
  * 
  * Suit l'état, le temps d'exécution, les statuts et performances de tous les jobs
  * indépendamment du type métier (emails, exports, etc.)
+ * Utilise Mongoose pour la persistance MongoDB.
  */
 class JobLogger {
   constructor(config = {}) {
@@ -34,6 +38,12 @@ class JobLogger {
 
     // Jobs actifs pour calcul du temps
     this.activeJobs = new Map();
+    
+    // Connexion MongoDB
+    this.mongoConnected = false;
+    if (this.config.mongo.uri) {
+      this.initializeMongoDB();
+    }
   }
 
   /**
@@ -383,19 +393,40 @@ class JobLogger {
   }
 
   /**
-   * Sauvegarde en base de données (MongoDB)
+   * Initialise la connexion MongoDB
+   */
+  async initializeMongoDB() {
+    try {
+      if (!this.mongoConnected && this.config.mongo.uri) {
+        await mongoose.connect(this.config.mongo.uri, {
+          useNewUrlParser: true,
+          useUnifiedTopology: true
+        });
+        this.mongoConnected = true;
+        this.log('info', '📊 JobLogger connecté à MongoDB');
+      }
+    } catch (error) {
+      this.log('error', '❌ Erreur connexion MongoDB:', error);
+    }
+  }
+
+  /**
+   * Sauvegarde en base de données (MongoDB avec Mongoose)
    */
   async saveToDatabase(logEntry) {
-    if (!this.config.mongo.uri) return;
+    if (!this.config.mongo.uri || !this.mongoConnected) return;
 
     try {
-      // TODO: Implémenter la sauvegarde MongoDB
-      // const mongoose = require('mongoose');
-      // await JobLogModel.create(logEntry);
+      const jobLogData = {
+        ...logEntry,
+        environment: this.config.isProduction ? 'production' : 'development'
+      };
+
+      await JobLog.create(jobLogData);
       
-      this.log('debug', `💾 Log job ${logEntry.jobId} sauvegardé en base`);
+      this.log('debug', `💾 Log job ${logEntry.jobId} sauvegardé en MongoDB`);
     } catch (error) {
-      this.log('error', '❌ Erreur sauvegarde log job:', error);
+      this.log('error', '❌ Erreur sauvegarde log job en MongoDB:', error);
     }
   }
 
@@ -403,18 +434,62 @@ class JobLogger {
    * Nettoie les anciens logs
    */
   async cleanOldLogs() {
-    if (!this.config.mongo.uri) return;
+    if (!this.config.mongo.uri || !this.mongoConnected) return;
 
     try {
       const cutoffDate = new Date();
       cutoffDate.setDate(cutoffDate.getDate() - this.config.retentionDays);
 
-      // TODO: Implémenter le nettoyage MongoDB
-      // await JobLogModel.deleteMany({ startTime: { $lt: cutoffDate } });
+      const result = await JobLog.deleteMany({ startTime: { $lt: cutoffDate } });
       
-      this.log('info', `🧹 Logs antérieurs à ${cutoffDate.toISOString()} nettoyés`);
+      this.log('info', `🧹 ${result.deletedCount} logs antérieurs à ${cutoffDate.toISOString()} nettoyés`);
     } catch (error) {
       this.log('error', '❌ Erreur nettoyage logs:', error);
+    }
+  }
+
+  /**
+   * Récupère les statistiques depuis MongoDB
+   */
+  async getMongoDBStats(days = 7) {
+    if (!this.config.mongo.uri || !this.mongoConnected) {
+      return null;
+    }
+
+    try {
+      const [performanceStats, errorStats] = await Promise.all([
+        JobLog.getPerformanceStats(days),
+        JobLog.getErrorStats(days)
+      ]);
+
+      return {
+        performance: performanceStats,
+        errors: errorStats,
+        totalLogsCount: await JobLog.countDocuments({
+          timestamp: { 
+            $gte: new Date(Date.now() - days * 24 * 60 * 60 * 1000) 
+          }
+        })
+      };
+    } catch (error) {
+      this.log('error', '❌ Erreur récupération stats MongoDB:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Récupère les statistiques d'une queue depuis MongoDB
+   */
+  async getQueueStatsFromMongoDB(queueName, days = 7) {
+    if (!this.config.mongo.uri || !this.mongoConnected) {
+      return null;
+    }
+
+    try {
+      return await JobLog.getQueueStats(queueName, days);
+    } catch (error) {
+      this.log('error', '❌ Erreur récupération stats queue MongoDB:', error);
+      return null;
     }
   }
 

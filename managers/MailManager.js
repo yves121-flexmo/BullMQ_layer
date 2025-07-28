@@ -314,6 +314,74 @@ class MailManager extends BullMQManager {
         
         this.log(`✅ Notification envoyée à ${data.to}`);
         return { success: true, sentTo: data.to, type: 'notification' };
+      },
+
+      // Handlers pour workflows email
+      'validate-email': async (data, job) => {
+        this.log(`✅ Validation email pour ${data.to}`);
+        
+        if (!data.to || !data.to.includes('@')) {
+          throw new Error('Email invalide');
+        }
+        
+        await new Promise(resolve => setTimeout(resolve, 300));
+        return { valid: true, email: data.to };
+      },
+
+      'prepare-template': async (data, job) => {
+        this.log(`📝 Préparation template ${data.template || 'default'}`);
+        
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        if (job.updateProgress) {
+          await job.updateProgress(100);
+        }
+        
+        return { 
+          template: data.template || 'default',
+          prepared: true,
+          preparationTime: new Date()
+        };
+      },
+
+      'log-email': async (data, job) => {
+        this.log(`📝 Log email ${data.step} pour ${data.to || 'destinataire'}`);
+        
+        await new Promise(resolve => setTimeout(resolve, 200));
+        
+        return {
+          logged: true,
+          step: data.step,
+          timestamp: new Date()
+        };
+      },
+
+      'send-personalized-email': async (data, job) => {
+        this.log(`📧 Envoi email personnalisé à ${data.recipient.email}`);
+        
+        // Simulation de personnalisation
+        const personalizedContent = data.template.replace('{{name}}', data.recipient.name || 'Cher client');
+        
+        await new Promise(resolve => setTimeout(resolve, 600));
+        
+        return {
+          success: true,
+          recipient: data.recipient.email,
+          campaignId: data.campaignId,
+          personalizedContent
+        };
+      },
+
+      'prepare-campaign': async (data, job) => {
+        this.log(`📋 Préparation campagne newsletter`);
+        
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        return {
+          campaignPrepared: true,
+          template: data.template,
+          preparationTime: new Date()
+        };
       }
     };
   }
@@ -366,6 +434,86 @@ class MailManager extends BullMQManager {
       templatesCount: Object.keys(this.emailConfig.templates).length,
       hasEmailService: !!this.emailService
     };
+  }
+
+  /**
+   * Crée un flow d'envoi d'email avec validation
+   */
+  async createEmailFlow(emailData) {
+    const flowDefinition = {
+      id: `email-flow-${Date.now()}`,
+      name: 'email-workflow',
+      queueName: this.emailConfig.defaultQueue,
+      data: { emailId: emailData.id, type: 'email-flow' },
+      children: [
+        {
+          name: 'validate-email',
+          queueName: this.emailConfig.defaultQueue,
+          data: { ...emailData, step: 'validation' }
+        },
+        {
+          name: 'prepare-template',
+          queueName: this.emailConfig.defaultQueue,
+          data: { ...emailData, step: 'preparation' },
+          children: [
+            {
+              name: 'send-email',
+              queueName: this.emailConfig.defaultQueue,
+              data: { ...emailData, step: 'sending' }
+            },
+            {
+              name: 'log-email',
+              queueName: this.emailConfig.defaultQueue,
+              data: { ...emailData, step: 'logging' }
+            }
+          ]
+        }
+      ]
+    };
+
+    return await this.addFlow(flowDefinition);
+  }
+
+  /**
+   * Crée un flow de newsletter avec personnalisation
+   */
+  async createNewsletterFlow(newsletterData) {
+    const { recipients, template } = newsletterData;
+    
+    const flowDefinition = {
+      id: `newsletter-flow-${Date.now()}`,
+      name: 'newsletter-workflow',
+      queueName: this.emailConfig.defaultQueue,
+      data: { campaignId: newsletterData.campaignId, type: 'newsletter-flow' },
+      children: [
+        {
+          name: 'prepare-campaign',
+          queueName: this.emailConfig.defaultQueue,
+          data: { template, step: 'preparation' },
+          children: recipients.map(recipient => ({
+            name: 'send-personalized-email',
+            queueName: this.emailConfig.defaultQueue,
+            data: { 
+              recipient, 
+              template, 
+              step: 'personalized-sending',
+              campaignId: newsletterData.campaignId
+            }
+          }))
+        },
+        {
+          name: 'generate-report',
+          queueName: this.emailConfig.defaultQueue,
+          data: { 
+            campaignId: newsletterData.campaignId, 
+            recipientCount: recipients.length,
+            step: 'reporting'
+          }
+        }
+      ]
+    };
+
+    return await this.addFlow(flowDefinition);
   }
 
   /**

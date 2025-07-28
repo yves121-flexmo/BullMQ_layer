@@ -69,86 +69,7 @@ class FlowManager {
     return count;
   }
 
-  /**
-   * Crée un flow d'envoi d'email avec validation
-   */
-  async createEmailFlow(emailData) {
-    const flowDefinition = {
-      id: `email-flow-${Date.now()}`,
-      name: 'email-workflow',
-      queueName: 'email-processing',
-      data: { emailId: emailData.id, type: 'email-flow' },
-      children: [
-        {
-          name: 'validate-email',
-          queueName: 'email-processing',
-          data: { ...emailData, step: 'validation' }
-        },
-        {
-          name: 'prepare-template',
-          queueName: 'email-processing',
-          data: { ...emailData, step: 'preparation' },
-          children: [
-            {
-              name: 'send-email',
-              queueName: 'email-processing',
-              data: { ...emailData, step: 'sending' }
-            },
-            {
-              name: 'log-email',
-              queueName: 'email-processing',
-              data: { ...emailData, step: 'logging' }
-            }
-          ]
-        }
-      ]
-    };
-
-    return await this.addFlow(flowDefinition);
-  }
-
-  /**
-   * Crée un flow de newsletter avec personnalisation
-   */
-  async createNewsletterFlow(newsletterData) {
-    const { recipients, template } = newsletterData;
-    
-    // Création d'un flow avec un job pour chaque destinataire
-    const flowDefinition = {
-      id: `newsletter-flow-${Date.now()}`,
-      name: 'newsletter-workflow',
-      queueName: 'newsletter-processing',
-      data: { campaignId: newsletterData.campaignId, type: 'newsletter-flow' },
-      children: [
-        {
-          name: 'prepare-campaign',
-          queueName: 'newsletter-processing',
-          data: { template, step: 'preparation' },
-          children: recipients.map(recipient => ({
-            name: 'send-personalized-email',
-            queueName: 'newsletter-processing',
-            data: { 
-              recipient, 
-              template, 
-              step: 'personalized-sending',
-              campaignId: newsletterData.campaignId
-            }
-          }))
-        },
-        {
-          name: 'generate-report',
-          queueName: 'newsletter-processing',
-          data: { 
-            campaignId: newsletterData.campaignId, 
-            recipientCount: recipients.length,
-            step: 'reporting'
-          }
-        }
-      ]
-    };
-
-    return await this.addFlow(flowDefinition);
-  }
+  // Fonctions spécifiques aux emails déplacées vers managers/MailManager.js
 
   /**
    * Crée un flow conditionnel basé sur des critères
@@ -314,34 +235,7 @@ class FlowManager {
    */
   static createFlowHandlers() {
     return {
-      // Gestionnaire de validation d'email
-      'validate-email': async (data, job) => {
-        console.log(`✅ Validation email pour ${data.to}`);
-        
-        if (!data.to || !data.to.includes('@')) {
-          throw new Error('Email invalide');
-        }
-        
-        await new Promise(resolve => setTimeout(resolve, 300));
-        return { valid: true, email: data.to };
-      },
-
-      // Gestionnaire de préparation de template
-      'prepare-template': async (data, job) => {
-        console.log(`📝 Préparation template ${data.template || 'default'}`);
-        
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        if (job.updateProgress) {
-          await job.updateProgress(100);
-        }
-        
-        return { 
-          template: data.template || 'default',
-          prepared: true,
-          preparationTime: new Date()
-        };
-      },
+      // Handlers spécifiques aux emails déplacés vers managers/MailManager.js
 
       // Gestionnaire d'évaluation de conditions
       'evaluate-conditions': async (data, job) => {
