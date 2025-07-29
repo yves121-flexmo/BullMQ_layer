@@ -2,12 +2,23 @@ require('dotenv').config();
 const { Queue, Worker, QueueEvents } = require('bullmq');
 const mongoose = require('mongoose');
 
+// Modules modulaires
+const JobHandlers = require('./handlers');
+const EmailUtils = require('./email-utils');
+const BusinessLogic = require('./business-logic');
+const Monitoring = require('./monitoring');
+
 /**
- * ReminderService - Version Lite du système de rappels
+ * ReminderService - Version Lite Modulaire du système de rappels
  * 
- * Service générique couplé au système d'alertes avec toutes les fonctionnalités
- * intégrées sans couche d'abstraction. Combine les features de MailManager
- * et RemboursementMailService en une seule classe optimisée.
+ * Service générique couplé au système d'alertes avec architecture modulaire
+ * légèrement découplée tout en restant dans l'esprit "lite".
+ * 
+ * Modules extraits :
+ * - JobHandlers : Gestionnaires de tâches
+ * - EmailUtils : Utilitaires et templates email
+ * - BusinessLogic : Logique métier remboursements
+ * - Monitoring : Surveillance et métriques
  */
 class ReminderService {
   constructor(config = {}) {
@@ -65,6 +76,12 @@ class ReminderService {
       startTime: new Date()
     };
 
+    // Initialisation des modules
+    this.jobHandlers = new JobHandlers(this);
+    this.emailUtils = EmailUtils; // Classe statique
+    this.businessLogic = new BusinessLogic(this);
+    this.monitoring = new Monitoring(this);
+
     this.isInitialized = false;
   }
 
@@ -83,14 +100,14 @@ class ReminderService {
       // 2. Création des queues
       await this.createQueues();
 
-      // 3. Configuration des handlers
-      const handlers = this.createHandlers();
+      // 3. Configuration des handlers via le module
+      const handlers = this.jobHandlers.createHandlers();
 
       // 4. Démarrage des workers
       await this.startWorkers(handlers);
 
-      // 5. Configuration du monitoring et alertes
-      this.setupMonitoring();
+      // 5. Configuration du monitoring et alertes via le module
+      this.monitoring.setupMonitoring();
 
       // 6. Planification des jobs de rappels automatiques
       await this.scheduleReminders();
@@ -163,284 +180,6 @@ class ReminderService {
   }
 
   /**
-   * Crée tous les handlers de jobs
-   */
-  createHandlers() {
-    return {
-      // === HANDLERS REMBOURSEMENTS ===
-      
-      'process-corporate-reminders': async (data, job) => {
-        this.log('🏢 Traitement des rappels Corporate...');
-        
-        try {
-          const currentDate = new Date();
-          const dayOfMonth = currentDate.getDate();
-          
-          // Vérification période (10 premiers jours)
-          if (dayOfMonth > 10) {
-            this.log(`⏭️ Jour ${dayOfMonth} > 10, pas de traitement Corporate`);
-            this.metrics.reminders.skipped++;
-            return { skipped: true, reason: 'Hors période (> 10 jours)' };
-          }
-
-          await job.updateProgress(10);
-
-          // Récupération remboursements SALARY
-          const reimbursements = await this.reimbursementService.getReimbursements({
-            type: 'SALARY',
-            statuses: this.config.corporateTypes
-          });
-
-          this.log(`📋 ${reimbursements.length} remboursements Corporate trouvés`);
-          await job.updateProgress(30);
-
-          let processedCount = 0;
-          const results = [];
-
-          for (const reimbursement of reimbursements) {
-            try {
-              const result = await this.processCorporateReimbursement(reimbursement, currentDate);
-              results.push(result);
-              processedCount++;
-              
-              await job.updateProgress(30 + (processedCount / reimbursements.length) * 60);
-            } catch (error) {
-              this.logError(`❌ Erreur remboursement ${reimbursement.id}:`, error);
-              results.push({ id: reimbursement.id, error: error.message });
-              this.metrics.reminders.failed++;
-            }
-          }
-
-          await job.updateProgress(100);
-          this.metrics.jobs.completed++;
-
-          const finalResult = {
-            type: 'corporate',
-            totalProcessed: processedCount,
-            totalReimbursements: reimbursements.length,
-            results,
-            executionDate: currentDate
-          };
-
-          // Sauvegarde en MongoDB si activé
-          if (this.mongoConnected) {
-            await this.saveExecutionLog(finalResult);
-          }
-
-          // Alerte système si configurée
-          if (this.alertService) {
-            await this.alertService.notifyExecution(finalResult);
-          }
-
-          return finalResult;
-
-        } catch (error) {
-          this.metrics.jobs.failed++;
-          this.logError('❌ Erreur traitement Corporate:', error);
-          throw error;
-        }
-      },
-
-      'process-coverage-reminders': async (data, job) => {
-        this.log('🏥 Traitement des rappels Coverage...');
-        
-        try {
-          const currentDate = new Date();
-          await job.updateProgress(10);
-
-          // Récupération remboursements TREASURY
-          const reimbursements = await this.reimbursementService.getReimbursements({
-            type: 'TREASURY',
-            statuses: this.config.coverageTypes
-          });
-
-          this.log(`📋 ${reimbursements.length} remboursements Coverage trouvés`);
-          await job.updateProgress(30);
-
-          // Groupement par health-coverage
-          const reimbursementsByHealthCoverage = this.groupByHealthCoverage(reimbursements);
-          
-          let processedCount = 0;
-          const results = [];
-          const totalItems = Object.keys(reimbursementsByHealthCoverage).length;
-
-          for (const [healthCoverageId, coverageReimbursements] of Object.entries(reimbursementsByHealthCoverage)) {
-            try {
-              const result = await this.processCoverageReimbursements(
-                healthCoverageId, 
-                coverageReimbursements, 
-                currentDate
-              );
-              results.push(result);
-              processedCount++;
-              
-              await job.updateProgress(30 + (processedCount / totalItems) * 60);
-            } catch (error) {
-              this.logError(`❌ Erreur health-coverage ${healthCoverageId}:`, error);
-              results.push({ healthCoverageId, error: error.message });
-              this.metrics.reminders.failed++;
-            }
-          }
-
-          await job.updateProgress(100);
-          this.metrics.jobs.completed++;
-
-          const finalResult = {
-            type: 'coverage',
-            totalHealthCoverages: totalItems,
-            totalReimbursements: reimbursements.length,
-            results,
-            executionDate: currentDate
-          };
-
-          // Sauvegarde en MongoDB
-          if (this.mongoConnected) {
-            await this.saveExecutionLog(finalResult);
-          }
-
-          // Alerte système
-          if (this.alertService) {
-            await this.alertService.notifyExecution(finalResult);
-          }
-
-          return finalResult;
-
-        } catch (error) {
-          this.metrics.jobs.failed++;
-          this.logError('❌ Erreur traitement Coverage:', error);
-          throw error;
-        }
-      },
-
-      // === HANDLERS EMAILS ===
-
-      'send-reminder-email': async (data, job) => {
-        const { emailType, recipients, reimbursement, daysInfo } = data;
-        
-        this.log(`📧 Envoi email ${emailType} à ${recipients.length} destinataires`);
-        this.metrics.emails.processing++;
-        
-        try {
-          const emailResult = await this.emailService.sendReminderEmail({
-            type: emailType,
-            recipients,
-            reimbursement,
-            daysInfo,
-            template: this.getEmailTemplate(emailType, daysInfo)
-          });
-
-          const result = {
-            emailType,
-            recipientCount: recipients.length,
-            reimbursementId: reimbursement.id,
-            emailResult,
-            timestamp: new Date()
-          };
-
-          this.metrics.emails.sent++;
-          this.metrics.emails.processing--;
-          this.metrics.reminders.sent++;
-
-          // Sauvegarde email log
-          if (this.mongoConnected) {
-            await this.saveEmailLog(result);
-          }
-
-          return result;
-
-        } catch (error) {
-          this.metrics.emails.failed++;
-          this.metrics.emails.processing--;
-          this.metrics.reminders.failed++;
-          this.logError('❌ Erreur envoi email:', error);
-          throw error;
-        }
-      },
-
-      'send-email': async (data, job) => {
-        this.log(`📧 Envoi email générique à ${data.to.join(', ')}: ${data.subject}`);
-        
-        try {
-          await job.updateProgress(10);
-
-          // Validation
-          if (!data.to || data.to.length === 0) {
-            throw new Error('Destinataire requis');
-          }
-          if (!data.subject) {
-            throw new Error('Sujet requis');
-          }
-
-          await job.updateProgress(30);
-
-          // Préparation contenu
-          let emailContent = data.content;
-          if (data.template) {
-            emailContent = await this.renderTemplate(data.template, data.templateData);
-          }
-
-          await job.updateProgress(60);
-
-          // Envoi via service email
-          if (!this.emailService) {
-            throw new Error('Service email non configuré');
-          }
-
-          const result = await this.emailService.sendEmail({
-            to: data.to,
-            subject: data.subject,
-            content: emailContent,
-            attachments: data.attachments,
-            priority: data.priority
-          });
-
-          await job.updateProgress(100);
-          this.metrics.emails.sent++;
-
-          return {
-            success: true,
-            messageId: result.messageId,
-            recipients: data.to,
-            subject: data.subject,
-            sentAt: new Date()
-          };
-
-        } catch (error) {
-          this.metrics.emails.failed++;
-          this.logError('❌ Erreur envoi email générique:', error);
-          throw error;
-        }
-      },
-
-      // === HANDLERS UTILITAIRES ===
-
-      'send-welcome': async (data, job) => {
-        this.log(`📧 Email de bienvenue à ${data.to}`);
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        await job.updateProgress(100);
-        this.metrics.emails.sent++;
-        return { success: true, type: 'welcome', sentTo: data.to };
-      },
-
-      'send-newsletter': async (data, job) => {
-        this.log(`📰 Newsletter à ${data.to}`);
-        await new Promise(resolve => setTimeout(resolve, 1200));
-        await job.updateProgress(100);
-        this.metrics.emails.sent++;
-        return { success: true, type: 'newsletter', sentTo: data.to };
-      },
-
-      'send-notification': async (data, job) => {
-        this.log(`🔔 Notification à ${data.to}: ${data.subject}`);
-        await new Promise(resolve => setTimeout(resolve, 400));
-        await job.updateProgress(100);
-        this.metrics.emails.sent++;
-        return { success: true, type: 'notification', sentTo: data.to };
-      }
-    };
-  }
-
-  /**
    * Démarre tous les workers
    */
   async startWorkers(handlers) {
@@ -468,50 +207,6 @@ class ReminderService {
       this.workers.set(queueName, worker);
       this.log(`👷 Worker "${queueName}" démarré`);
     }
-  }
-
-  /**
-   * Configure le monitoring et les alertes
-   */
-  setupMonitoring() {
-    for (const [queueName, queueEvents] of this.queueEvents) {
-      // Monitoring des succès
-      queueEvents.on('completed', ({ jobId }) => {
-        this.log(`✅ [${queueName}] Job ${jobId} terminé`);
-        
-        // Alerte si configurée
-        if (this.alertService) {
-          this.alertService.notifyJobCompleted(queueName, jobId);
-        }
-      });
-
-      // Monitoring des échecs avec alertes
-      queueEvents.on('failed', ({ jobId, failedReason }) => {
-        this.logError(`❌ [${queueName}] Job ${jobId} échoué: ${failedReason}`);
-        
-        // Alerte critique
-        if (this.alertService) {
-          this.alertService.notifyJobFailed(queueName, jobId, failedReason);
-        }
-      });
-
-      // Monitoring des jobs bloqués
-      queueEvents.on('stalled', ({ jobId }) => {
-        this.logError(`⚠️ [${queueName}] Job ${jobId} bloqué`);
-        
-        // Alerte de surveillance
-        if (this.alertService) {
-          this.alertService.notifyJobStalled(queueName, jobId);
-        }
-      });
-
-      // Monitoring progression
-      queueEvents.on('progress', ({ jobId, data }) => {
-        this.log(`📊 [${queueName}] Job ${jobId} progression: ${data}%`);
-      });
-    }
-
-    this.log('📊 Monitoring et système d\'alertes configurés');
   }
 
   /**
@@ -546,163 +241,41 @@ class ReminderService {
     this.log(`  - Coverage: ${this.config.coverageCron}`);
   }
 
-  // === MÉTHODES MÉTIER ===
+  // === MÉTHODES MÉTIER (DÉLÉGATION AUX MODULES) ===
 
   /**
-   * Traite un remboursement Corporate
+   * Traite un remboursement Corporate (délégation)
    */
   async processCorporateReimbursement(reimbursement, currentDate) {
-    const dueDate = new Date(reimbursement.dueDate);
-    const timeDiff = dueDate.getTime() - currentDate.getTime();
-    const daysDiff = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
-
-    let emailType;
-    let daysInfo = { daysDiff, isOverdue: false };
-
-    if (daysDiff <= 0) {
-      emailType = 'payment-overdue';
-      daysInfo.isOverdue = true;
-      daysInfo.overdueDays = Math.abs(daysDiff);
-    } else {
-      emailType = 'payment-reminder';
-      daysInfo.remainingDays = daysDiff;
-    }
-
-    // Récupération destinataires
-    const recipients = await this.getReimbursementRecipients(reimbursement, 'corporate');
-
-    // Envoi email
-    const emailQueue = this.queues.get(this.config.emailQueue);
-    const emailJob = await emailQueue.add('send-reminder-email', {
-      emailType,
-      recipients,
-      reimbursement,
-      daysInfo
-    });
-
-    return {
-      id: reimbursement.id,
-      emailType,
-      daysDiff,
-      recipientCount: recipients.length,
-      emailJobId: emailJob.id
-    };
+    return await this.businessLogic.processCorporateReimbursement(reimbursement, currentDate);
   }
 
   /**
-   * Traite les remboursements d'une health-coverage
+   * Traite les remboursements d'une health-coverage (délégation)
    */
   async processCoverageReimbursements(healthCoverageId, reimbursements, currentDate) {
-    const processedReimbursements = [];
-
-    for (const reimbursement of reimbursements) {
-      const dueDate = new Date(reimbursement.dueDate);
-      const timeDiff = dueDate.getTime() - currentDate.getTime();
-      const daysDiff = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
-
-      let shouldSendEmail = false;
-      let emailType;
-      let daysInfo = { daysDiff };
-
-      // Logique Coverage
-      if (daysDiff <= 0) {
-        shouldSendEmail = true;
-        emailType = 'payment-overdue';
-        daysInfo.isOverdue = true;
-        daysInfo.overdueDays = Math.abs(daysDiff);
-      } else if (daysDiff <= this.config.warningDays) {
-        shouldSendEmail = true;
-        emailType = 'payment-reminder';
-        daysInfo.remainingDays = daysDiff;
-      }
-
-      if (shouldSendEmail) {
-        const recipients = await this.getReimbursementRecipients(reimbursement, 'coverage');
-        
-        const emailQueue = this.queues.get(this.config.emailQueue);
-        const emailJob = await emailQueue.add('send-reminder-email', {
-          emailType,
-          recipients,
-          reimbursement,
-          daysInfo
-        });
-
-        processedReimbursements.push({
-          id: reimbursement.id,
-          emailType,
-          daysDiff,
-          recipientCount: recipients.length,
-          emailJobId: emailJob.id
-        });
-      } else {
-        processedReimbursements.push({
-          id: reimbursement.id,
-          skipped: true,
-          reason: `${daysDiff} jours restants, pas d'alerte nécessaire`
-        });
-      }
-    }
-
-    return {
-      healthCoverageId,
-      totalReimbursements: reimbursements.length,
-      emailsSent: processedReimbursements.filter(r => !r.skipped).length,
-      processedReimbursements
-    };
+    return await this.businessLogic.processCoverageReimbursements(healthCoverageId, reimbursements, currentDate);
   }
 
   /**
-   * Groupe les remboursements par health-coverage
+   * Groupe les remboursements par health-coverage (délégation)
    */
   groupByHealthCoverage(reimbursements) {
-    return reimbursements.reduce((groups, reimbursement) => {
-      const healthCoverageId = reimbursement.healthCoverageId || 'unknown';
-      if (!groups[healthCoverageId]) {
-        groups[healthCoverageId] = [];
-      }
-      groups[healthCoverageId].push(reimbursement);
-      return groups;
-    }, {});
+    return this.businessLogic.groupByHealthCoverage(reimbursements);
   }
 
   /**
-   * Récupère les destinataires pour un remboursement
+   * Récupère les destinataires pour un remboursement (délégation)
    */
   async getReimbursementRecipients(reimbursement, type) {
-    try {
-      const owner = await this.managerService.getReimbursementOwner(reimbursement.id);
-      const oldestManagers = await this.managerService.getOldestManagers(type, 3);
-      
-      const recipients = [owner, ...oldestManagers].filter(Boolean);
-      
-      // Dédoublonnage par email
-      return recipients.filter((recipient, index, self) => 
-        index === self.findIndex(r => r.email === recipient.email)
-      );
-    } catch (error) {
-      this.logError(`❌ Erreur récupération destinataires pour ${reimbursement.id}:`, error);
-      return [];
-    }
+    return await this.businessLogic.getReimbursementRecipients(reimbursement, type);
   }
 
   /**
-   * Retourne le template d'email approprié
+   * Retourne le template d'email approprié (délégation)
    */
   getEmailTemplate(emailType, daysInfo) {
-    const templates = {
-      'payment-reminder': {
-        subject: daysInfo.remainingDays === 1 
-          ? 'Rappel : Échéance de remboursement demain'
-          : `Rappel : Échéance de remboursement dans ${daysInfo.remainingDays} jours`,
-        template: 'reminder-before-due'
-      },
-      'payment-overdue': {
-        subject: 'URGENT : Paiement de remboursement en retard',
-        template: 'reminder-overdue'
-      }
-    };
-
-    return templates[emailType] || templates['payment-reminder'];
+    return this.emailUtils.getEmailTemplate(emailType, daysInfo);
   }
 
   // === MÉTHODES EMAILS GÉNÉRIQUES ===
@@ -712,21 +285,10 @@ class ReminderService {
    */
   async sendEmail(to, subject, content, options = {}) {
     const emailQueue = this.queues.get(this.config.emailQueue);
-    
-    const emailData = {
-      to: Array.isArray(to) ? to : [to],
-      subject,
-      content,
-      template: options.template,
-      templateData: options.templateData,
-      attachments: options.attachments,
-      priority: options.priority || 'normal'
-    };
+    const emailData = this.emailUtils.formatEmailData(to, subject, content, options);
+    const jobOptions = this.emailUtils.createJobOptions(options);
 
-    return emailQueue.add('send-email', emailData, {
-      priority: this.getPriorityValue(options.priority),
-      delay: options.delay || 0
-    });
+    return emailQueue.add('send-email', emailData, jobOptions);
   }
 
   /**
@@ -734,14 +296,10 @@ class ReminderService {
    */
   async sendWelcomeEmail(to, userData, options = {}) {
     const emailQueue = this.queues.get(this.config.emailQueue);
-    
-    return emailQueue.add('send-welcome', {
-      to,
-      userData,
-      ...options
-    }, {
-      priority: this.getPriorityValue('high')
-    });
+    const emailData = this.emailUtils.prepareWelcomeEmailData(to, userData, options);
+    const jobOptions = this.emailUtils.createJobOptions({ priority: 'high', ...options });
+
+    return emailQueue.add('send-welcome', emailData, jobOptions);
   }
 
   /**
@@ -749,17 +307,12 @@ class ReminderService {
    */
   async sendNewsletter(recipients, newsletterData, options = {}) {
     const emailQueue = this.queues.get(this.config.emailQueue);
+    const newsletterEmails = this.emailUtils.prepareNewsletterData(recipients, newsletterData, options);
     const jobs = [];
     
-    for (const recipient of recipients) {
-      const job = await emailQueue.add('send-newsletter', {
-        to: recipient.email,
-        recipient,
-        newsletterData,
-        ...options
-      }, {
-        priority: this.getPriorityValue('low')
-      });
+    for (const emailData of newsletterEmails) {
+      const jobOptions = this.emailUtils.createJobOptions({ priority: 'low', ...options });
+      const job = await emailQueue.add('send-newsletter', emailData, jobOptions);
       jobs.push(job);
     }
 
@@ -772,89 +325,27 @@ class ReminderService {
    */
   async scheduleRecurringEmail(to, subject, content, cronPattern, options = {}) {
     const emailQueue = this.queues.get(this.config.emailQueue);
-    
-    return emailQueue.add('send-email', {
-      to: Array.isArray(to) ? to : [to],
-      subject,
-      content,
-      ...options
-    }, {
+    const emailData = this.emailUtils.formatEmailData(to, subject, content, options);
+    const jobId = this.emailUtils.generateRecurringEmailId(to, subject);
+
+    return emailQueue.add('send-email', emailData, {
       repeat: { pattern: cronPattern },
-      jobId: `recurring-email-${Date.now()}`
+      jobId: jobId
     });
   }
 
   /**
-   * Rend un template
+   * Rend un template (délégation)
    */
   async renderTemplate(templateName, data) {
-    const templates = this.getEmailTemplates();
-    const template = templates[templateName];
-    
-    if (!template) {
-      throw new Error(`Template "${templateName}" non trouvé`);
-    }
-
-    let content = template.content || template;
-    
-    if (data) {
-      Object.keys(data).forEach(key => {
-        const regex = new RegExp(`{{${key}}}`, 'g');
-        content = content.replace(regex, data[key]);
-      });
-    }
-
-    return content;
+    return await this.emailUtils.renderTemplate(templateName, data);
   }
 
   /**
-   * Templates d'emails par défaut
-   */
-  getEmailTemplates() {
-    return {
-      welcome: {
-        subject: 'Bienvenue {{name}} !',
-        content: `
-          Bonjour {{name}},
-          
-          Bienvenue sur notre plateforme ! Nous sommes ravis de vous compter parmi nous.
-          
-          Cordialement,
-          L'équipe
-        `
-      },
-      'password-reset': {
-        subject: 'Réinitialisation de votre mot de passe',
-        content: `
-          Bonjour,
-          
-          Vous avez demandé la réinitialisation de votre mot de passe.
-          Cliquez sur ce lien : {{resetLink}}
-          
-          Cordialement,
-          L'équipe sécurité
-        `
-      },
-      newsletter: {
-        subject: 'Newsletter {{month}}',
-        content: `
-          Bonjour {{recipient.name}},
-          
-          Voici les dernières nouvelles de {{month}} :
-          {{content}}
-          
-          À bientôt !
-        `
-      }
-    };
-  }
-
-  /**
-   * Convertit la priorité en valeur numérique
+   * Convertit la priorité en valeur numérique (délégation)
    */
   getPriorityValue(priority) {
-    const priorities = { 'low': 1, 'normal': 5, 'high': 10, 'urgent': 15 };
-    return priorities[priority] || 5;
+    return this.emailUtils.getPriorityValue(priority);
   }
 
   // === MÉTHODES CONTRÔLE ===
@@ -890,118 +381,61 @@ class ReminderService {
   }
 
   /**
-   * Récupère les statistiques du service
+   * Récupère les statistiques du service (délégation)
    */
   async getStats() {
-    const stats = {
-      service: {
-        isInitialized: this.isInitialized,
-        uptime: Date.now() - this.metrics.startTime.getTime(),
-        environment: this.config.isProduction ? 'production' : 'development'
-      },
-      metrics: { ...this.metrics },
-      queues: {},
-      mongodb: {
-        connected: this.mongoConnected,
-        uri: this.config.mongo.uri ? '[CONFIGURED]' : null
-      }
-    };
-
-    // Stats détaillées par queue
-    for (const [queueName, queue] of this.queues) {
-      const waiting = await queue.getWaiting();
-      const active = await queue.getActive();
-      const completed = await queue.getCompleted();
-      const failed = await queue.getFailed();
-      const delayed = await queue.getDelayed();
-
-      stats.queues[queueName] = {
-        waiting: waiting.length,
-        active: active.length,
-        completed: completed.length,
-        failed: failed.length,
-        delayed: delayed.length
-      };
-    }
-
-    return stats;
+    return await this.monitoring.getStats();
   }
 
   /**
-   * Nettoie les anciens jobs
+   * Nettoie les anciens jobs (délégation)
    */
-  async cleanOldJobs(olderThan = 24 * 60 * 60 * 1000) { // 24h par défaut
-    let totalCleaned = 0;
-
-    for (const [queueName, queue] of this.queues) {
-      try {
-        await queue.clean(olderThan, 100, 'completed');
-        await queue.clean(olderThan, 50, 'failed');
-        totalCleaned += 150; // Estimation
-        this.log(`🧹 Queue "${queueName}" nettoyée`);
-      } catch (error) {
-        this.logError(`❌ Erreur nettoyage queue ${queueName}:`, error);
-      }
-    }
-
-    this.log(`🧹 ${totalCleaned} anciens jobs nettoyés`);
-    return { totalCleaned, olderThan };
+  async cleanOldJobs(olderThan = 24 * 60 * 60 * 1000) {
+    return await this.monitoring.cleanOldJobs(olderThan);
   }
 
-  // === MÉTHODES PERSISTANCE ===
+  /**
+   * Vérifie l'état de santé du service (délégation)
+   */
+  async healthCheck() {
+    return await this.monitoring.healthCheck();
+  }
 
   /**
-   * Sauvegarde les logs d'exécution en MongoDB
+   * Génère un rapport de performance (délégation)
+   */
+  async generatePerformanceReport(timeframe) {
+    return await this.monitoring.generatePerformanceReport(timeframe);
+  }
+
+  /**
+   * Exporte les métriques Prometheus (délégation)
+   */
+  getPrometheusMetrics() {
+    return this.monitoring.getPrometheusMetrics();
+  }
+
+  /**
+   * Génère un dashboard HTML (délégation)
+   */
+  generateDashboardHTML() {
+    return this.monitoring.generateDashboardHTML();
+  }
+
+  // === MÉTHODES PERSISTANCE (DÉLÉGATION) ===
+
+  /**
+   * Sauvegarde les logs d'exécution en MongoDB (délégation)
    */
   async saveExecutionLog(data) {
-    if (!this.mongoConnected) return;
-
-    try {
-      // Schéma simple pour les logs d'exécution
-      const ExecutionLog = mongoose.model('ExecutionLog', new mongoose.Schema({
-        type: String,
-        data: mongoose.Schema.Types.Mixed,
-        timestamp: { type: Date, default: Date.now },
-        environment: String
-      }), 'execution_logs');
-
-      await ExecutionLog.create({
-        type: data.type,
-        data,
-        environment: this.config.isProduction ? 'production' : 'development'
-      });
-
-      this.log(`💾 Log d'exécution ${data.type} sauvegardé`);
-    } catch (error) {
-      this.logError('❌ Erreur sauvegarde log d\'exécution:', error);
-    }
+    return await this.monitoring.saveExecutionLog(data);
   }
 
   /**
-   * Sauvegarde les logs d'emails en MongoDB
+   * Sauvegarde les logs d'emails en MongoDB (délégation)
    */
   async saveEmailLog(emailData) {
-    if (!this.mongoConnected) return;
-
-    try {
-      const EmailLog = mongoose.model('EmailLog', new mongoose.Schema({
-        emailType: String,
-        recipientCount: Number,
-        reimbursementId: String,
-        timestamp: { type: Date, default: Date.now },
-        environment: String,
-        data: mongoose.Schema.Types.Mixed
-      }), 'email_logs');
-
-      await EmailLog.create({
-        ...emailData,
-        environment: this.config.isProduction ? 'production' : 'development'
-      });
-
-      this.log(`💾 Log d'email sauvegardé`);
-    } catch (error) {
-      this.logError('❌ Erreur sauvegarde log d\'email:', error);
-    }
+    return await this.monitoring.saveEmailLog(emailData);
   }
 
   // === MÉTHODES UTILITAIRES ===
@@ -1063,49 +497,78 @@ class ReminderService {
     this.log('✅ ReminderService arrêté proprement');
   }
 
+  // === MÉTHODES AVANCÉES MÉTIER (DÉLÉGATION) ===
+
   /**
-   * Vérifie l'état de santé du service
+   * Analyse les remboursements par urgence (délégation)
    */
-  async healthCheck() {
-    try {
-      const health = {
-        status: 'healthy',
-        timestamp: new Date(),
-        checks: {
-          initialized: this.isInitialized,
-          queues: this.queues.size > 0,
-          workers: this.workers.size > 0,
-          mongodb: this.mongoConnected,
-          redis: true // Toujours OK si on arrive ici
-        }
-      };
+  analyzeReimbursementUrgency(reimbursements, currentDate) {
+    return this.businessLogic.analyzeReimbursementUrgency(reimbursements, currentDate);
+  }
 
-      // Test Redis rapide
-      try {
-        const testQueue = this.queues.values().next().value;
-        if (testQueue) {
-          await testQueue.add('health-check', {}, { delay: 1 });
-          health.checks.redis = true;
-        }
-      } catch (error) {
-        health.checks.redis = false;
-        health.status = 'degraded';
-      }
+  /**
+   * Calcule les statistiques des remboursements (délégation)
+   */
+  calculateReimbursementStats(reimbursements, currentDate) {
+    return this.businessLogic.calculateReimbursementStats(reimbursements, currentDate);
+  }
 
-      // Déterminer le statut global
-      const allChecksOk = Object.values(health.checks).every(check => check === true);
-      if (!allChecksOk && health.status === 'healthy') {
-        health.status = 'degraded';
-      }
+  /**
+   * Génère un résumé exécutif (délégation)
+   */
+  generateExecutiveSummary(reimbursements, currentDate) {
+    return this.businessLogic.generateExecutiveSummary(reimbursements, currentDate);
+  }
 
-      return health;
-    } catch (error) {
-      return {
-        status: 'unhealthy',
-        timestamp: new Date(),
-        error: error.message
-      };
-    }
+  /**
+   * Filtre les remboursements (délégation)
+   */
+  filterReimbursements(reimbursements, filters) {
+    return this.businessLogic.filterReimbursements(reimbursements, filters);
+  }
+
+  /**
+   * Trie les remboursements par priorité (délégation)
+   */
+  sortReimbursementsByPriority(reimbursements, currentDate) {
+    return this.businessLogic.sortReimbursementsByPriority(reimbursements, currentDate);
+  }
+
+  /**
+   * Valide un remboursement (délégation)
+   */
+  validateReimbursement(reimbursement) {
+    return this.businessLogic.validateReimbursement(reimbursement);
+  }
+
+  // === MÉTHODES UTILITAIRES EMAIL AVANCÉES (DÉLÉGATION) ===
+
+  /**
+   * Valide les données d'email (délégation)
+   */
+  validateEmailData(emailData) {
+    return this.emailUtils.validateEmailData(emailData);
+  }
+
+  /**
+   * Nettoie et formate les emails (délégation)
+   */
+  sanitizeEmails(emails) {
+    return this.emailUtils.sanitizeEmails(emails);
+  }
+
+  /**
+   * Génère un rapport d'emails (délégation)
+   */
+  generateEmailReport(emailResults) {
+    return this.emailUtils.generateEmailReport(emailResults);
+  }
+
+  /**
+   * Calcule le meilleur moment d'envoi (délégation)
+   */
+  calculateOptimalSendTime(priority, timezone) {
+    return this.emailUtils.calculateOptimalSendTime(priority, timezone);
   }
 }
 

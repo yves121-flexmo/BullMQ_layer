@@ -347,6 +347,7 @@ if (require.main === module) {
   }
 }
 
+
 module.exports = {
   exempleUtilisationLite,
   exempleConfigurationAvancee
