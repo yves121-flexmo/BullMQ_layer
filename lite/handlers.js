@@ -477,69 +477,6 @@ class JobHandlers {
       // === HANDLERS UTILITAIRES ===
 
       /**
-       * Handler pour l'envoi d'emails de bienvenue
-       * 
-       * Utilise le template EJS 'welcome' pour envoyer des emails
-       * de bienvenue personnalisés aux nouveaux utilisateurs.
-       * 
-       * @async
-       * @param {Object} data - Données de l'email de bienvenue
-       * @param {string} data.to - Destinataire
-       * @param {string} data.name - Nom de l'utilisateur
-       * @param {Object} [data.userData] - Données utilisateur supplémentaires
-       * @param {BullMQJob} job - Instance du job BullMQ
-       * @returns {Promise<Object>} Résultat de l'envoi
-       * 
-       * @example
-       * const welcomeData = {
-       *   to: 'newuser@company.com',
-       *   name: 'Alice Dupont',
-       *   userData: { role: 'Manager', department: 'Finance' }
-       * };
-       * await handler(welcomeData, jobInstance);
-       */
-      'send-welcome': async (data, job) => {
-        this.service.log(`📧 Email de bienvenue à ${data.to}`);
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        await job.updateProgress(100);
-        this.metrics.emails.sent++;
-        return { success: true, type: 'welcome', sentTo: data.to };
-      },
-
-      /**
-       * Handler pour l'envoi de newsletters
-       * 
-       * Utilise le template EJS 'newsletter' pour envoyer des newsletters
-       * personnalisées avec articles, statistiques et événements.
-       * 
-       * @async
-       * @param {Object} data - Données de la newsletter
-       * @param {string} data.to - Destinataire
-       * @param {string} data.subject - Sujet de la newsletter
-       * @param {Object} data.newsletterData - Contenu de la newsletter
-       * @param {BullMQJob} job - Instance du job BullMQ
-       * @returns {Promise<Object>} Résultat de l'envoi
-       * 
-       * @example
-       * const newsletterData = {
-       *   to: 'subscriber@company.com',
-       *   subject: 'Newsletter Janvier 2025',
-       *   newsletterData: {
-       *     intro: 'Voici les actualités du mois',
-       *     articles: [{ title: 'Article 1', summary: 'Résumé...' }]
-       *   }
-       * };
-       * await handler(newsletterData, jobInstance);
-       */
-      'send-newsletter': async (data, job) => {
-        this.service.log(`📰 Newsletter à ${data.to}`);
-        await new Promise(resolve => setTimeout(resolve, 1200));
-        await job.updateProgress(100);
-        this.metrics.emails.sent++;
-        return { success: true, type: 'newsletter', sentTo: data.to };
-      },
-
-      /**
        * Handler pour l'envoi de notifications
        * 
        * Envoie des notifications rapides et légères pour des alertes

@@ -83,18 +83,9 @@ const Monitoring = require('./monitoring');
 
 /**
  * @typedef {Object} NewsletterRecipient
- * @property {string} email - Adresse email du destinataire
+ * @property {string} email - Email du destinataire
  * @property {string} name - Nom du destinataire
  * @property {Object} [metadata] - Métadonnées supplémentaires
- */
-
-/**
- * @typedef {Object} WelcomeEmailData
- * @property {string} name - Nom de l'utilisateur
- * @property {string} [role] - Rôle de l'utilisateur
- * @property {string} [department] - Département
- * @property {string} [loginUrl] - URL de connexion
- * @property {string} [unsubscribeUrl] - URL de désabonnement
  */
 
 /**
@@ -588,9 +579,9 @@ class ReminderService {
    * 
    * @example
    * // Email avec template EJS
-   * await service.sendEmail('user@example.com', 'Bienvenue', null, {
-   *   template: 'welcome',
-   *   templateData: { name: 'Alice', userData: { role: 'Manager' } },
+   * await service.sendEmail('user@example.com', 'Newsletter', null, {
+   *   template: 'newsletter',
+   *   templateData: { articles: [{ title: 'Article 1' }] },
    *   priority: 'high'
    * });
    */
@@ -600,32 +591,6 @@ class ReminderService {
     const jobOptions = this.emailUtils.createJobOptions(options);
 
     return emailQueue.add('send-email', emailData, jobOptions);
-  }
-
-  /**
-   * Envoie un email de bienvenue avec template EJS personnalisé
-   * 
-   * @async
-   * @param {string|string[]} to - Destinataire(s)
-   * @param {WelcomeEmailData} userData - Données utilisateur pour le template
-   * @param {EmailJobOptions} [options={}] - Options d'envoi
-   * @returns {Promise<Object>} Job BullMQ créé
-   * @throws {Error} Si l'envoi échoue
-   * 
-   * @example
-   * await service.sendWelcomeEmail('newuser@company.com', {
-   *   name: 'Alice Dupont',
-   *   role: 'Manager Finance',
-   *   department: 'Finance',
-   *   loginUrl: 'https://app.company.com/login'
-   * });
-   */
-  async sendWelcomeEmail(to, userData, options = {}) {
-    const emailQueue = this.queues.get(this.config.emailQueue);
-    const emailData = this.emailUtils.prepareWelcomeEmailData(to, userData, options);
-    const jobOptions = this.emailUtils.createJobOptions({ priority: 'high', ...options });
-
-    return emailQueue.add('send-welcome', emailData, jobOptions);
   }
 
   /**
