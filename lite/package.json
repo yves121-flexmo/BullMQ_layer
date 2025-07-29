@@ -1,0 +1,43 @@
+{
+  "name": "reminder-service-lite",
+  "version": "1.0.0",
+  "description": "Version lite du système de rappels sans couche d'abstraction, couplé au système d'alertes",
+  "main": "index.js",
+  "scripts": {
+    "test": "node example.js",
+    "test:advanced": "node example.js advanced",
+    "start": "node index.js",
+    "dev": "NODE_ENV=development node example.js",
+    "prod": "NODE_ENV=production node example.js"
+  },
+  "keywords": [
+    "bullmq",
+    "reminder",
+    "email",
+    "alerts",
+    "lite",
+    "reimbursement",
+    "cron",
+    "mongodb",
+    "redis"
+  ],
+  "author": "Flexmo Team",
+  "license": "ISC",
+  "dependencies": {
+    "bullmq": "^5.56.8",
+    "ioredis": "^5.6.1",
+    "mongoose": "^8.16.5",
+    "dotenv": "^17.2.1"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/flexmo/bullmq-reminder-lite.git"
+  },
+  "bugs": {
+    "url": "https://github.com/flexmo/bullmq-reminder-lite/issues"
+  },
+  "homepage": "https://github.com/flexmo/bullmq-reminder-lite#readme"
+}
