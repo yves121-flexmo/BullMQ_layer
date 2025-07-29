@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>URGENT - Paiement en retard</title>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: #e74c3c; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+        .content { background: #ffeaea; padding: 30px; border: 2px solid #e74c3c; border-radius: 0 0 8px 8px; }
+        .urgent-alert { background: #e74c3c; color: white; padding: 20px; border-radius: 4px; margin: 20px 0; text-align: center; }
+        .reimbursement-details { background: white; padding: 20px; border-radius: 4px; margin: 20px 0; border-left: 4px solid #e74c3c; }
+        .button { display: inline-block; background: #e74c3c; color: white; padding: 15px 30px; text-decoration: none; border-radius: 4px; margin: 20px 0; font-weight: bold; }
+        .button-secondary { background: #34495e; }
+        .footer { text-align: center; margin-top: 20px; font-size: 12px; color: #666; }
+        .penalty-info { background: #fff5f5; border: 1px solid #e74c3c; padding: 15px; border-radius: 4px; margin: 20px 0; }
+        .overdue-days { font-size: 1.5em; color: #e74c3c; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚨 PAIEMENT EN RETARD</h1>
+            <p style="font-size: 1.2em; margin: 0;">Action immédiate requise</p>
+        </div>
+        
+        <div class="content">
+            <% if (recipient && recipient.name) { %>
+            <p>Bonjour <strong><%= recipient.name %></strong>,</p>
+            <% } else { %>
+            <p>Bonjour,</p>
+            <% } %>
+            
+            <div class="urgent-alert">
+                <h2 style="margin: 0;">⚠️ ATTENTION - PAIEMENT EN RETARD</h2>
+                <% if (daysInfo && daysInfo.overdueDays) { %>
+                <p style="margin: 10px 0 0 0;">
+                    Votre paiement est en retard de 
+                    <span class="overdue-days"><%= daysInfo.overdueDays %> jour<%= daysInfo.overdueDays > 1 ? 's' : '' %></span>
+                </p>
+                <% } %>
+            </div>
+            
+            <p><strong>Ce message nécessite votre attention immédiate.</strong> Un remboursement prévu est maintenant en retard et doit être traité d'urgence.</p>
+            
+            <% if (reimbursement) { %>
+            <div class="reimbursement-details">
+                <h3>📄 Détails du remboursement en retard</h3>
+                
+                <% if (reimbursement.id) { %>
+                <p><strong>Référence :</strong> <span style="color: #e74c3c; font-weight: bold;"><%= reimbursement.id %></span></p>
+                <% } %>
+                
+                <% if (reimbursement.type) { %>
+                <p><strong>Type :</strong> <%= reimbursement.type === 'SALARY' ? 'Salaire' : reimbursement.type === 'TREASURY' ? 'Trésorerie' : reimbursement.type %></p>
+                <% } %>
+                
+                <% if (reimbursement.amount) { %>
+                <p><strong>Montant dû :</strong> <span style="font-size: 1.4em; color: #e74c3c; font-weight: bold;"><%= reimbursement.amount.toLocaleString('fr-FR') %>€</span></p>
+                <% } %>
+                
+                <% if (reimbursement.dueDate) { %>
+                <p><strong>Date d'échéance dépassée :</strong> <span style="color: #e74c3c; font-weight: bold;"><%= new Date(reimbursement.dueDate).toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) %></span></p>
+                <% } %>
+                
+                <% if (daysInfo && daysInfo.overdueDays) { %>
+                <p><strong>Retard :</strong> <span style="color: #e74c3c; font-weight: bold;"><%= daysInfo.overdueDays %> jour<%= daysInfo.overdueDays > 1 ? 's' : '' %></span></p>
+                <% } %>
+                
+                <% if (reimbursement.description) { %>
+                <p><strong>Description :</strong> <%= reimbursement.description %></p>
+                <% } %>
+                
+                <% if (reimbursement.beneficiary) { %>
+                <p><strong>Bénéficiaire :</strong> <%= reimbursement.beneficiary %></p>
+                <% } %>
+                
+                <p><strong>Statut :</strong> <span style="color: #e74c3c; font-weight: bold;">🔴 EN RETARD</span></p>
+            </div>
+            <% } %>
+            
+            <% if (daysInfo && daysInfo.overdueDays >= 7) { %>
+            <div class="penalty-info">
+                <h3>⚠️ Pénalités de retard</h3>
+                <p><strong>Attention :</strong> Ce retard de plus de 7 jours peut entraîner :</p>
+                <ul>
+                    <li>🔺 Application de pénalités financières</li>
+                    <li>📋 Signalement aux instances compétentes</li>
+                    <li>⚖️ Procédures de recouvrement</li>
+                    <li>📊 Impact sur votre évaluation</li>
+                </ul>
+            </div>
+            <% } %>
+            
+            <h3>🚨 Actions URGENTES requises</h3>
+            <ul>
+                <li><strong>📞 Contactez immédiatement votre responsable financier</strong></li>
+                <li><strong>💰 Effectuez le paiement dans les plus brefs délais</strong></li>
+                <li><strong>📧 Confirmez la régularisation par email</strong></li>
+                <li><strong>📋 Fournissez une justification du retard</strong></li>
+                <% if (daysInfo && daysInfo.overdueDays >= 3) { %>
+                <li><strong>🏢 Informez votre hiérarchie directe</strong></li>
+                <% } %>
+            </ul>
+            
+            <% if (reimbursement && reimbursement.paymentUrl) { %>
+            <p style="text-align: center;">
+                <a href="<%= reimbursement.paymentUrl %>" class="button">🚨 PAYER IMMÉDIATEMENT</a>
+            </p>
+            <% } %>
+            
+            <% if (reimbursement && reimbursement.contactUrl) { %>
+            <p style="text-align: center;">
+                <a href="<%= reimbursement.contactUrl %>" class="button button-secondary">📞 CONTACTER LE SUPPORT</a>
+            </p>
+            <% } %>
+            
+            <div class="urgent-alert">
+                <p><strong>⏰ DÉLAI CRITIQUE :</strong> Ce paiement doit être régularisé dans les 24 heures pour éviter des mesures supplémentaires.</p>
+            </div>
+            
+            <h3>📋 Informations importantes</h3>
+            <ul>
+                <li>Ce rappel est automatique et prioritaire</li>
+                <li>Une copie a été envoyée à votre responsable</li>
+                <li>Le non-paiement peut entraîner des sanctions</li>
+                <li>En cas de difficultés, contactez-nous immédiatement</li>
+            </ul>
+            
+            <% if (reimbursement && reimbursement.escalationContacts && reimbursement.escalationContacts.length > 0) { %>
+            <h3>📞 Contacts d'urgence</h3>
+            <% reimbursement.escalationContacts.forEach(function(contact) { %>
+            <p><strong><%= contact.role %> :</strong> <%= contact.name %> - <%= contact.email %> - <%= contact.phone || 'N/A' %></p>
+            <% }); %>
+            <% } %>
+            
+            <p><strong>Si vous avez déjà effectué ce paiement, merci de nous transmettre immédiatement le justificatif.</strong></p>
+            
+            <p>Cordialement,<br>
+            <strong>L'équipe Finance - Service Recouvrement</strong></p>
+        </div>
+        
+        <div class="footer">
+            <p><strong>RAPPEL URGENT - PAIEMENT EN RETARD</strong></p>
+            <p>© <%= new Date().getFullYear() %> - Système de rappels automatique</p>
+            <p>Ce message a été envoyé automatiquement. Réponse requise dans les 24h.</p>
+        </div>
+    </div>
+</body>
+</html>

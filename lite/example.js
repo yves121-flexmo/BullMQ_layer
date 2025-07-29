@@ -229,7 +229,7 @@ async function exempleUtilisationLite() {
     console.log('');
 
     // 7. Nettoyage des anciens jobs
-    await reminderService.cleanOldJobs(60000); // 1 minute
+    // await reminderService.cleanOldJobs(60000); // 1 minute
     console.log('');
 
     // 8. Test d'emails avec templates

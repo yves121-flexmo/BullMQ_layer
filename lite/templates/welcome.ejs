@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bienvenue <%= name %> !</title>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: #2196F3; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+        .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; }
+        .button { display: inline-block; background: #4CAF50; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; margin: 20px 0; }
+        .footer { text-align: center; margin-top: 20px; font-size: 12px; color: #666; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎉 Bienvenue <%= name %> !</h1>
+        </div>
+        <div class="content">
+            <p>Bonjour <strong><%= name %></strong>,</p>
+            
+            <p>Nous sommes ravis de vous accueillir sur notre plateforme ! Votre compte a été créé avec succès.</p>
+            
+            <% if (typeof userData !== 'undefined' && userData && userData.role) { %>
+            <p><strong>Votre rôle :</strong> <%= userData.role %></p>
+            <% } %>
+            
+            <% if (typeof userData !== 'undefined' && userData && userData.department) { %>
+            <p><strong>Département :</strong> <%= userData.department %></p>
+            <% } %>
+            
+            <p>Pour commencer, voici quelques étapes importantes :</p>
+            <ul>
+                <li>✅ Complétez votre profil</li>
+                <li>🔐 Configurez votre authentification</li>
+                <li>📚 Consultez la documentation</li>
+                <li>👥 Rejoignez votre équipe</li>
+            </ul>
+            
+            <% if (typeof userData !== 'undefined' && userData && userData.loginUrl) { %>
+            <p style="text-align: center;">
+                <a href="<%= userData.loginUrl %>" class="button">Accéder à mon compte</a>
+            </p>
+            <% } %>
+            
+            <p>Si vous avez des questions, n'hésitez pas à contacter notre équipe support.</p>
+            
+            <p>Bonne découverte !</p>
+        </div>
+        <div class="footer">
+            <p>© <%= new Date().getFullYear() %> - L'équipe Flexmo</p>
+            <% if (typeof userData !== 'undefined' && userData && userData.unsubscribeUrl) { %>
+            <p><a href="<%= userData.unsubscribeUrl %>">Se désabonner</a></p>
+            <% } %>
+        </div>
+    </div>
+</body>
+</html>
