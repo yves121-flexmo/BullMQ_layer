@@ -320,7 +320,6 @@ async function exempleConfigurationAvancee() {
       }
     }
   });
-
   console.log('⚙️ Configuration avancée chargée');
   console.log('📋 Queues:', ['advanced-corporate', 'advanced-coverage', 'advanced-emails']);
   console.log('⏰ Cron Corporate:', '0 9 1-10 * * (10 premiers jours à 9h)');
@@ -346,6 +345,7 @@ if (require.main === module) {
       exempleUtilisationLite().catch(console.error);
   }
 }
+
 
 
 module.exports = {

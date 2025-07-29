@@ -1,23 +1,172 @@
 /**
- * Business Logic - Logique métier pour les remboursements
+ * @fileoverview Business Logic - Logique métier pour les remboursements
  * 
  * Module contenant :
  * - Logique de traitement des remboursements Corporate et Coverage
- * - Calculs de dates et échéances
+ * - Calculs de dates et échéances avec gestion des fuseaux horaires
  * - Groupement et récupération des destinataires
- * - Règles métier spécialisées
+ * - Règles métier spécialisées et validation des données
+ * - Analyse d'urgence et génération de rapports exécutifs
+ * - Filtrage, tri et statistiques avancées
+ * 
+ * @author Flexmo Team
+ * @version 1.0.0
+ * @since 2025-01-29
  */
 
+/**
+ * @typedef {Object} Reimbursement
+ * @property {string} id - Identifiant unique du remboursement
+ * @property {string} type - Type de remboursement ('SALARY', 'TREASURY')
+ * @property {number} amount - Montant du remboursement en euros
+ * @property {string} dueDate - Date d'échéance (format ISO 8601)
+ * @property {string} globalStatus - Statut global ('PENDING', 'OVERDUE', 'COMPLETED')
+ * @property {string} [description] - Description du remboursement
+ * @property {string} [beneficiary] - Bénéficiaire du remboursement
+ * @property {string} [healthCoverageId] - ID de la couverture santé (Treasury uniquement)
+ */
+
+/**
+ * @typedef {Object} ProcessingResult
+ * @property {string} id - ID du remboursement traité
+ * @property {string} emailType - Type d'email envoyé ('payment-reminder', 'payment-overdue')
+ * @property {number} daysDiff - Différence en jours par rapport à l'échéance
+ * @property {number} recipientCount - Nombre de destinataires
+ * @property {string} emailJobId - ID du job d'email créé
+ * @property {boolean} [skipped] - Indique si le traitement a été ignoré
+ * @property {string} [reason] - Raison de l'ignorance du traitement
+ */
+
+/**
+ * @typedef {Object} CoverageProcessingResult
+ * @property {string} healthCoverageId - ID de la couverture santé
+ * @property {number} totalReimbursements - Nombre total de remboursements
+ * @property {number} emailsSent - Nombre d'emails envoyés
+ * @property {Array<ProcessingResult>} processedReimbursements - Détails des traitements
+ */
+
+/**
+ * @typedef {Object} DaysInfo
+ * @property {number} daysDiff - Différence en jours (négatif si en retard)
+ * @property {boolean} [isOverdue] - Indique si le remboursement est en retard
+ * @property {number} [remainingDays] - Jours restants avant échéance (si positif)
+ * @property {number} [overdueDays] - Jours de retard (si négatif)
+ */
+
+/**
+ * @typedef {Object} Recipient
+ * @property {string} name - Nom du destinataire
+ * @property {string} email - Email du destinataire
+ * @property {string} [role] - Rôle du destinataire
+ * @property {string} [department] - Département du destinataire
+ */
+
+/**
+ * @typedef {Object} UrgencyAnalysis
+ * @property {Array<Reimbursement>} critical - Remboursements critiques (>7 jours de retard)
+ * @property {Array<Reimbursement>} urgent - Remboursements urgents (≤2 jours)
+ * @property {Array<Reimbursement>} warning - Remboursements d'avertissement (3-10 jours)
+ * @property {Array<Reimbursement>} normal - Remboursements normaux (10-30 jours)
+ * @property {Array<Reimbursement>} future - Remboursements futurs (>30 jours)
+ */
+
+/**
+ * @typedef {Object} ReimbursementStats
+ * @property {number} total - Nombre total de remboursements
+ * @property {Object<string, number>} byStatus - Répartition par statut
+ * @property {Object<string, number>} byType - Répartition par type
+ * @property {Object<string, number>} byUrgency - Répartition par niveau d'urgence
+ * @property {Object} amounts - Statistiques des montants
+ * @property {number} amounts.total - Montant total
+ * @property {number} amounts.average - Montant moyen
+ * @property {number} amounts.min - Montant minimum
+ * @property {number} amounts.max - Montant maximum
+ * @property {number} amounts.overdue - Montant total en retard
+ * @property {Object<string, number>} timeline - Répartition par mois d'échéance
+ */
+
+/**
+ * @typedef {Object} EmailStrategy
+ * @property {boolean} shouldSend - Indique si un email doit être envoyé
+ * @property {string} [emailType] - Type d'email à envoyer
+ * @property {string} priority - Priorité de l'email ('normal', 'high', 'urgent')
+ * @property {number} delay - Délai avant envoi en millisecondes
+ * @property {string} reason - Raison de la décision
+ */
+
+/**
+ * @typedef {Object} ExecutiveSummary
+ * @property {Object} overview - Vue d'ensemble générale
+ * @property {Object} urgency - Analyse d'urgence
+ * @property {Object} breakdown - Répartition par type
+ * @property {Array} recommendations - Recommandations d'actions
+ */
+
+/**
+ * BusinessLogic - Classe de logique métier pour les remboursements
+ * 
+ * Cette classe encapsule toute la logique métier spécifique aux remboursements,
+ * incluant les règles de traitement Corporate et Coverage, les calculs de dates,
+ * l'analyse d'urgence et la génération de rapports.
+ * 
+ * @class BusinessLogic
+ */
 class BusinessLogic {
+  
+  /**
+   * Crée une instance de BusinessLogic
+   * 
+   * @param {Object} service - Instance du ReminderService principal
+   * @param {Object} service.config - Configuration du service
+   * @param {number} service.config.warningDays - Nombre de jours d'avertissement
+   * @param {string} service.config.emailQueue - Nom de la queue email
+   * @param {Function} service.log - Fonction de logging
+   * @param {Function} service.logError - Fonction de logging d'erreurs
+   * @param {Object} service.managerService - Service de gestion des managers
+   * @param {Map} service.queues - Map des queues BullMQ
+   */
   constructor(service) {
+    /**
+     * Instance du service principal
+     * @type {Object}
+     * @private
+     */
     this.service = service;
+    
+    /**
+     * Configuration du service
+     * @type {Object}
+     * @private
+     */
     this.config = service.config;
   }
 
   /**
-   * Traite un remboursement Corporate
+   * Traite un remboursement Corporate selon les règles métier
+   * 
+   * Les règles Corporate :
+   * - Traitement uniquement les 10 premiers jours du mois
+   * - Type SALARY avec statuts PENDING/OVERDUE
+   * - Email immédiat si en retard, sinon rappel standard
+   * 
+   * @async
+   * @param {Reimbursement} reimbursement - Remboursement à traiter
+   * @param {Date} [currentDate=new Date()] - Date actuelle pour les calculs
+   * @returns {Promise<ProcessingResult>} Résultat du traitement
+   * @throws {Error} Si le remboursement est invalide ou si l'envoi échoue
+   * 
+   * @example
+   * const reimbursement = {
+   *   id: 'RBT-001',
+   *   type: 'SALARY',
+   *   amount: 2500,
+   *   dueDate: '2025-02-15',
+   *   globalStatus: 'PENDING'
+   * };
+   * const result = await businessLogic.processCorporateReimbursement(reimbursement);
+   * console.log(`Email ${result.emailType} envoyé à ${result.recipientCount} destinataires`);
    */
-  async processCorporateReimbursement(reimbursement, currentDate) {
+  async processCorporateReimbursement(reimbursement, currentDate = new Date()) {
     const dueDate = new Date(reimbursement.dueDate);
     const timeDiff = dueDate.getTime() - currentDate.getTime();
     const daysDiff = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
@@ -56,9 +205,30 @@ class BusinessLogic {
   }
 
   /**
-   * Traite les remboursements d'une health-coverage
+   * Traite les remboursements d'une health-coverage selon les règles Coverage
+   * 
+   * Les règles Coverage :
+   * - Traitement tous les jours du mois
+   * - Type TREASURY avec statuts PENDING/OVERDUE
+   * - Rappel à X jours configurables avant échéance
+   * - Email immédiat si en retard
+   * 
+   * @async
+   * @param {string} healthCoverageId - ID de la couverture santé
+   * @param {Array<Reimbursement>} reimbursements - Remboursements à traiter
+   * @param {Date} [currentDate=new Date()] - Date actuelle pour les calculs
+   * @returns {Promise<CoverageProcessingResult>} Résultat du traitement
+   * @throws {Error} Si les remboursements sont invalides ou si l'envoi échoue
+   * 
+   * @example
+   * const reimbursements = [
+   *   { id: 'RBT-001', type: 'TREASURY', dueDate: '2025-02-10' },
+   *   { id: 'RBT-002', type: 'TREASURY', dueDate: '2025-02-20' }
+   * ];
+   * const result = await businessLogic.processCoverageReimbursements('HC-001', reimbursements);
+   * console.log(`${result.emailsSent} emails envoyés sur ${result.totalReimbursements}`);
    */
-  async processCoverageReimbursements(healthCoverageId, reimbursements, currentDate) {
+  async processCoverageReimbursements(healthCoverageId, reimbursements, currentDate = new Date()) {
     const processedReimbursements = [];
 
     for (const reimbursement of reimbursements) {
@@ -119,6 +289,21 @@ class BusinessLogic {
 
   /**
    * Groupe les remboursements par health-coverage
+   * 
+   * Organise une liste de remboursements en groupes selon leur healthCoverageId
+   * pour faciliter le traitement par couverture santé.
+   * 
+   * @param {Array<Reimbursement>} reimbursements - Liste des remboursements
+   * @returns {Object<string, Array<Reimbursement>>} Remboursements groupés par health-coverage
+   * 
+   * @example
+   * const reimbursements = [
+   *   { id: 'RBT-001', healthCoverageId: 'HC-001' },
+   *   { id: 'RBT-002', healthCoverageId: 'HC-001' },
+   *   { id: 'RBT-003', healthCoverageId: 'HC-002' }
+   * ];
+   * const grouped = businessLogic.groupByHealthCoverage(reimbursements);
+   * // Résultat: { 'HC-001': [RBT-001, RBT-002], 'HC-002': [RBT-003] }
    */
   groupByHealthCoverage(reimbursements) {
     return reimbursements.reduce((groups, reimbursement) => {
@@ -132,7 +317,21 @@ class BusinessLogic {
   }
 
   /**
-   * Récupère les destinataires pour un remboursement
+   * Récupère les destinataires pour un remboursement donné
+   * 
+   * Récupère le propriétaire du remboursement et les 3 managers les plus anciens
+   * selon le type de traitement (corporate/coverage).
+   * 
+   * @async
+   * @param {Reimbursement} reimbursement - Remboursement concerné
+   * @param {string} type - Type de traitement ('corporate', 'coverage')
+   * @returns {Promise<Array<Recipient>>} Liste des destinataires dédoublonnée
+   * @throws {Error} Si la récupération des destinataires échoue
+   * 
+   * @example
+   * const recipients = await businessLogic.getReimbursementRecipients(reimbursement, 'corporate');
+   * console.log(`Envoi à ${recipients.length} destinataires`);
+   * recipients.forEach(r => console.log(`- ${r.name} (${r.email})`));
    */
   async getReimbursementRecipients(reimbursement, type) {
     try {
@@ -152,7 +351,19 @@ class BusinessLogic {
   }
 
   /**
-   * Analyse et classe les remboursements par urgence
+   * Analyse et classe les remboursements par niveau d'urgence
+   * 
+   * Classe les remboursements en 5 catégories d'urgence selon les jours
+   * restants avant échéance ou le retard accumulé.
+   * 
+   * @param {Array<Reimbursement>} reimbursements - Liste des remboursements
+   * @param {Date} [currentDate=new Date()] - Date de référence pour les calculs
+   * @returns {UrgencyAnalysis} Analyse d'urgence avec remboursements classés
+   * 
+   * @example
+   * const analysis = businessLogic.analyzeReimbursementUrgency(reimbursements);
+   * console.log(`${analysis.critical.length} remboursements critiques`);
+   * console.log(`${analysis.urgent.length} remboursements urgents`);
    */
   analyzeReimbursementUrgency(reimbursements, currentDate = new Date()) {
     const analysis = {
@@ -189,6 +400,13 @@ class BusinessLogic {
 
   /**
    * Calcule le niveau d'urgence d'un remboursement
+   * 
+   * @param {number} daysDiff - Différence en jours (négatif si en retard)
+   * @returns {string} Niveau d'urgence ('critical', 'urgent', 'warning', 'normal', 'future')
+   * 
+   * @example
+   * const urgency = businessLogic.calculateUrgencyLevel(-10); // 'critical'
+   * const urgency2 = businessLogic.calculateUrgencyLevel(2); // 'urgent'
    */
   calculateUrgencyLevel(daysDiff) {
     if (daysDiff < -7) return 'critical';
@@ -200,6 +418,20 @@ class BusinessLogic {
 
   /**
    * Détermine la stratégie d'envoi d'email selon le contexte
+   * 
+   * Analyse un remboursement et détermine s'il faut envoyer un email,
+   * quel type, avec quelle priorité et quel délai.
+   * 
+   * @param {Reimbursement} reimbursement - Remboursement à analyser
+   * @param {string} type - Type de traitement ('corporate', 'coverage')
+   * @param {Date} [currentDate=new Date()] - Date de référence
+   * @returns {EmailStrategy} Stratégie d'envoi recommandée
+   * 
+   * @example
+   * const strategy = businessLogic.determineEmailStrategy(reimbursement, 'corporate');
+   * if (strategy.shouldSend) {
+   *   console.log(`Envoyer ${strategy.emailType} avec priorité ${strategy.priority}`);
+   * }
    */
   determineEmailStrategy(reimbursement, type, currentDate = new Date()) {
     const dueDate = new Date(reimbursement.dueDate);
@@ -249,7 +481,20 @@ class BusinessLogic {
   }
 
   /**
-   * Calcule les statistiques des remboursements
+   * Calcule les statistiques complètes des remboursements
+   * 
+   * Génère un rapport statistique détaillé incluant les répartitions
+   * par statut, type, urgence, ainsi que les statistiques de montants.
+   * 
+   * @param {Array<Reimbursement>} reimbursements - Liste des remboursements
+   * @param {Date} [currentDate=new Date()] - Date de référence
+   * @returns {ReimbursementStats} Statistiques complètes
+   * 
+   * @example
+   * const stats = businessLogic.calculateReimbursementStats(reimbursements);
+   * console.log(`Total: ${stats.total} remboursements`);
+   * console.log(`Montant moyen: ${stats.amounts.average}€`);
+   * console.log(`En retard: ${stats.amounts.overdue}€`);
    */
   calculateReimbursementStats(reimbursements, currentDate = new Date()) {
     const stats = {
@@ -306,6 +551,18 @@ class BusinessLogic {
 
   /**
    * Valide les données d'un remboursement
+   * 
+   * Vérifie que toutes les données obligatoires sont présentes
+   * et dans le bon format pour éviter les erreurs de traitement.
+   * 
+   * @param {Reimbursement} reimbursement - Remboursement à valider
+   * @returns {Array<string>} Liste des erreurs de validation (vide si valide)
+   * 
+   * @example
+   * const errors = businessLogic.validateReimbursement(reimbursement);
+   * if (errors.length > 0) {
+   *   console.error('Erreurs de validation:', errors);
+   * }
    */
   validateReimbursement(reimbursement) {
     const errors = [];
@@ -339,7 +596,30 @@ class BusinessLogic {
   }
 
   /**
-   * Filtre les remboursements selon des critères
+   * Filtre les remboursements selon des critères multiples
+   * 
+   * Applique plusieurs filtres simultanément pour affiner la sélection
+   * de remboursements selon les besoins métier.
+   * 
+   * @param {Array<Reimbursement>} reimbursements - Liste des remboursements
+   * @param {Object} [filters={}] - Critères de filtrage
+   * @param {Array<string>} [filters.types] - Types autorisés
+   * @param {Array<string>} [filters.statuses] - Statuts autorisés
+   * @param {number} [filters.minAmount] - Montant minimum
+   * @param {number} [filters.maxAmount] - Montant maximum
+   * @param {string} [filters.dueBefore] - Échéance avant cette date
+   * @param {string} [filters.dueAfter] - Échéance après cette date
+   * @param {Array<string>} [filters.healthCoverageIds] - IDs de couvertures santé
+   * @returns {Array<Reimbursement>} Remboursements filtrés
+   * 
+   * @example
+   * const filters = {
+   *   types: ['SALARY'],
+   *   statuses: ['PENDING', 'OVERDUE'],
+   *   minAmount: 1000,
+   *   dueBefore: '2025-03-01'
+   * };
+   * const filtered = businessLogic.filterReimbursements(reimbursements, filters);
    */
   filterReimbursements(reimbursements, filters = {}) {
     return reimbursements.filter(reimbursement => {
@@ -388,7 +668,19 @@ class BusinessLogic {
   }
 
   /**
-   * Trie les remboursements par priorité
+   * Trie les remboursements par priorité de traitement
+   * 
+   * Classe les remboursements en mettant en priorité ceux en retard
+   * (les plus anciens en premier), puis par échéance croissante.
+   * 
+   * @param {Array<Reimbursement>} reimbursements - Liste des remboursements
+   * @param {Date} [currentDate=new Date()] - Date de référence
+   * @returns {Array<Reimbursement>} Remboursements triés par priorité
+   * 
+   * @example
+   * const sorted = businessLogic.sortReimbursementsByPriority(reimbursements);
+   * console.log('Ordre de traitement:');
+   * sorted.forEach((r, i) => console.log(`${i+1}. ${r.id} - ${r.dueDate}`));
    */
   sortReimbursementsByPriority(reimbursements, currentDate = new Date()) {
     return reimbursements.sort((a, b) => {
@@ -413,6 +705,19 @@ class BusinessLogic {
 
   /**
    * Génère un résumé exécutif des remboursements
+   * 
+   * Crée un rapport de synthèse destiné à la direction avec les
+   * informations clés et les recommandations d'actions.
+   * 
+   * @param {Array<Reimbursement>} reimbursements - Liste des remboursements
+   * @param {Date} [currentDate=new Date()] - Date de référence
+   * @returns {ExecutiveSummary} Résumé exécutif complet
+   * 
+   * @example
+   * const summary = businessLogic.generateExecutiveSummary(reimbursements);
+   * console.log(`Vue d'ensemble: ${summary.overview.totalReimbursements} remboursements`);
+   * console.log(`Actions urgentes: ${summary.urgency.totalRequiringAttention}`);
+   * summary.recommendations.forEach(r => console.log(`- ${r.message}`));
    */
   generateExecutiveSummary(reimbursements, currentDate = new Date()) {
     const stats = this.calculateReimbursementStats(reimbursements, currentDate);
@@ -438,6 +743,11 @@ class BusinessLogic {
 
   /**
    * Génère des recommandations basées sur l'analyse
+   * 
+   * @private
+   * @param {UrgencyAnalysis} analysis - Analyse d'urgence
+   * @param {ReimbursementStats} stats - Statistiques des remboursements
+   * @returns {Array<Object>} Liste des recommandations
    */
   generateRecommendations(analysis, stats) {
     const recommendations = [];

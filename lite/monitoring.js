@@ -1,25 +1,150 @@
 /**
- * Monitoring - Module de surveillance et métriques
+ * @fileoverview Monitoring - Module de surveillance et métriques
  * 
  * Module contenant :
- * - Métriques temps réel en mémoire
- * - Health check du système
- * - Persistance MongoDB des logs
- * - Statistiques et rapports
- * - Nettoyage automatique
+ * - Métriques temps réel en mémoire avec persistance MongoDB
+ * - Health check du système et surveillance des composants
+ * - Statistiques et rapports de performance détaillés
+ * - Nettoyage automatique des anciens jobs
+ * - Génération d'alertes automatiques basées sur les seuils
+ * - Export des métriques au format Prometheus
+ * - Dashboard HTML intégré pour le monitoring visuel
+ * 
+ * @author Flexmo Team
+ * @version 1.0.0
+ * @since 2025-01-29
  */
 
 const mongoose = require('mongoose');
 
+/**
+ * @typedef {Object} ServiceStats
+ * @property {Object} service - Informations générales du service
+ * @property {boolean} service.isInitialized - État d'initialisation
+ * @property {number} service.uptime - Temps de fonctionnement en millisecondes
+ * @property {string} service.environment - Environnement ('production', 'development')
+ * @property {Object} metrics - Métriques en temps réel
+ * @property {Object<string, QueueStats>} queues - Statistiques par queue
+ * @property {Object} mongodb - État de la connexion MongoDB
+ */
+
+/**
+ * @typedef {Object} QueueStats
+ * @property {number} waiting - Nombre de jobs en attente
+ * @property {number} active - Nombre de jobs actifs
+ * @property {number} completed - Nombre de jobs complétés
+ * @property {number} failed - Nombre de jobs échoués
+ * @property {number} delayed - Nombre de jobs retardés
+ */
+
+/**
+ * @typedef {Object} HealthCheck
+ * @property {string} status - État de santé ('healthy', 'degraded', 'unhealthy')
+ * @property {Date} timestamp - Timestamp du check
+ * @property {Object<string, boolean>} checks - Résultats des vérifications individuelles
+ * @property {string} [error] - Message d'erreur si unhealthy
+ */
+
+/**
+ * @typedef {Object} QueueMetrics
+ * @property {string} name - Nom de la queue
+ * @property {Object} current - Métriques actuelles
+ * @property {Object} performance - Métriques de performance
+ * @property {number} performance.throughput - Jobs traités par heure
+ * @property {number} performance.averageWaitTime - Temps d'attente moyen
+ * @property {number} performance.errorRate - Taux d'erreur en pourcentage
+ */
+
+/**
+ * @typedef {Object} PerformanceReport
+ * @property {Object} timeframe - Période d'analyse
+ * @property {Date} timeframe.start - Date de début
+ * @property {Date} timeframe.end - Date de fin
+ * @property {number} timeframe.durationHours - Durée en heures
+ * @property {Object} metrics - Métriques générales
+ * @property {Object<string, QueueMetrics>} queues - Métriques par queue
+ * @property {Object} alerts - Statistiques des alertes
+ */
+
+/**
+ * @typedef {Object} SystemAlert
+ * @property {string} type - Type d'alerte ('error_rate', 'queue_backlog', 'email_volume', 'mongodb_disconnected')
+ * @property {string} severity - Sévérité ('info', 'warning', 'error')
+ * @property {string} message - Message descriptif
+ * @property {string} recommendation - Recommandation d'action
+ * @property {Date} [timestamp] - Timestamp de l'alerte
+ */
+
+/**
+ * @typedef {Object} CleanupResult
+ * @property {number} totalCleaned - Nombre total de jobs nettoyés
+ * @property {number} olderThan - Seuil d'âge en millisecondes
+ * @property {Array<string>} cleanedQueues - Noms des queues nettoyées
+ * @property {Object<string, number>} detailsByQueue - Détails par queue
+ */
+
+/**
+ * Monitoring - Classe de surveillance et métriques pour ReminderService
+ * 
+ * Cette classe centralise toutes les fonctionnalités de monitoring, surveillance
+ * et génération de rapports. Elle gère les métriques en temps réel, la persistance
+ * MongoDB, les alertes automatiques et l'export de données.
+ * 
+ * @class Monitoring
+ */
 class Monitoring {
+  
+  /**
+   * Crée une instance de Monitoring
+   * 
+   * @param {Object} service - Instance du ReminderService principal
+   * @param {Object} service.config - Configuration du service
+   * @param {boolean} service.config.isProduction - Indicateur environnement production
+   * @param {Object} service.config.mongo - Configuration MongoDB
+   * @param {Object} service.metrics - Métriques en temps réel
+   * @param {Date} service.metrics.startTime - Heure de démarrage du service
+   * @param {Function} service.log - Fonction de logging
+   * @param {Function} service.logError - Fonction de logging d'erreurs
+   * @param {Map} service.queues - Map des queues BullMQ
+   * @param {Map} service.queueEvents - Map des événements de queues
+   * @param {boolean} service.mongoConnected - État connexion MongoDB
+   * @param {Object} [service.alertService] - Service d'alertes optionnel
+   */
   constructor(service) {
+    /**
+     * Instance du service principal
+     * @type {Object}
+     * @private
+     */
     this.service = service;
+    
+    /**
+     * Configuration du service
+     * @type {Object}
+     * @private
+     */
     this.config = service.config;
+    
+    /**
+     * Métriques en temps réel
+     * @type {Object}
+     * @private
+     */
     this.metrics = service.metrics;
   }
 
   /**
-   * Configure le monitoring et les alertes
+   * Configure le monitoring et les alertes pour toutes les queues
+   * 
+   * Met en place les listeners d'événements BullMQ pour surveiller
+   * l'état des jobs et déclencher les alertes appropriées.
+   * 
+   * @returns {void}
+   * 
+   * @example
+   * const monitoring = new Monitoring(service);
+   * monitoring.setupMonitoring();
+   * // Les événements BullMQ sont maintenant surveillés
    */
   setupMonitoring() {
     for (const [queueName, queueEvents] of this.service.queueEvents) {
@@ -64,6 +189,21 @@ class Monitoring {
 
   /**
    * Récupère les statistiques complètes du service
+   * 
+   * Collecte toutes les métriques disponibles incluant l'état du service,
+   * les statistiques par queue, et l'état des connexions externes.
+   * 
+   * @async
+   * @returns {Promise<ServiceStats>} Statistiques complètes du service
+   * @throws {Error} Si la récupération des statistiques échoue
+   * 
+   * @example
+   * const stats = await monitoring.getStats();
+   * console.log(`Uptime: ${stats.service.uptime}ms`);
+   * console.log(`Queues actives: ${Object.keys(stats.queues).length}`);
+   * Object.entries(stats.queues).forEach(([name, queueStats]) => {
+   *   console.log(`${name}: ${queueStats.active} jobs actifs`);
+   * });
    */
   async getStats() {
     const stats = {
@@ -101,7 +241,24 @@ class Monitoring {
   }
 
   /**
-   * Vérifie l'état de santé du service
+   * Vérifie l'état de santé complet du service
+   * 
+   * Effectue une série de vérifications sur tous les composants critiques
+   * et retourne un rapport de santé détaillé.
+   * 
+   * @async
+   * @returns {Promise<HealthCheck>} Rapport de santé du système
+   * 
+   * @example
+   * const health = await monitoring.healthCheck();
+   * console.log(`Statut global: ${health.status}`);
+   * 
+   * if (health.status !== 'healthy') {
+   *   console.log('Problèmes détectés:');
+   *   Object.entries(health.checks).forEach(([check, status]) => {
+   *     if (!status) console.log(`- ${check}: ÉCHEC`);
+   *   });
+   * }
    */
   async healthCheck() {
     try {
@@ -146,28 +303,82 @@ class Monitoring {
   }
 
   /**
-   * Nettoie les anciens jobs
+   * Nettoie les anciens jobs de toutes les queues
+   * 
+   * Supprime les jobs complétés et échoués plus anciens que le seuil spécifié
+   * pour maintenir des performances optimales.
+   * 
+   * @async
+   * @param {number} [olderThan=86400000] - Seuil d'âge en millisecondes (24h par défaut)
+   * @returns {Promise<CleanupResult>} Résultat du nettoyage
+   * @throws {Error} Si le nettoyage échoue
+   * 
+   * @example
+   * // Nettoyer les jobs de plus de 1 heure
+   * const result = await monitoring.cleanOldJobs(60 * 60 * 1000);
+   * console.log(`${result.totalCleaned} jobs nettoyés`);
+   * 
+   * @example
+   * // Nettoyage par défaut (24h)
+   * const result = await monitoring.cleanOldJobs();
+   * result.cleanedQueues.forEach(queueName => {
+   *   console.log(`Queue ${queueName}: ${result.detailsByQueue[queueName]} jobs nettoyés`);
+   * });
    */
   async cleanOldJobs(olderThan = 24 * 60 * 60 * 1000) { // 24h par défaut
     let totalCleaned = 0;
+    const cleanedQueues = [];
+    const detailsByQueue = {};
 
     for (const [queueName, queue] of this.service.queues) {
       try {
-        await queue.clean(olderThan, 100, 'completed');
-        await queue.clean(olderThan, 50, 'failed');
-        totalCleaned += 150; // Estimation
-        this.service.log(`🧹 Queue "${queueName}" nettoyée`);
+        const completedCleaned = await queue.clean(olderThan, 100, 'completed');
+        const failedCleaned = await queue.clean(olderThan, 50, 'failed');
+        const queueTotal = completedCleaned.length + failedCleaned.length;
+        
+        totalCleaned += queueTotal;
+        cleanedQueues.push(queueName);
+        detailsByQueue[queueName] = queueTotal;
+        
+        this.service.log(`🧹 Queue "${queueName}" nettoyée: ${queueTotal} jobs`);
       } catch (error) {
         this.service.logError(`❌ Erreur nettoyage queue ${queueName}:`, error);
       }
     }
 
-    this.service.log(`🧹 ${totalCleaned} anciens jobs nettoyés`);
-    return { totalCleaned, olderThan };
+    this.service.log(`🧹 ${totalCleaned} anciens jobs nettoyés au total`);
+    
+    return { 
+      totalCleaned, 
+      olderThan, 
+      cleanedQueues, 
+      detailsByQueue 
+    };
   }
 
   /**
    * Sauvegarde les logs d'exécution en MongoDB
+   * 
+   * Persiste les logs d'exécution des jobs de rappels avec toutes les
+   * métadonnées nécessaires pour l'analyse et le reporting.
+   * 
+   * @async
+   * @param {Object} data - Données d'exécution à sauvegarder
+   * @param {string} data.type - Type d'exécution ('corporate', 'coverage')
+   * @param {number} data.totalProcessed - Nombre d'éléments traités
+   * @param {Array} data.results - Résultats détaillés
+   * @param {Date} data.executionDate - Date d'exécution
+   * @returns {Promise<void>}
+   * @throws {Error} Si la sauvegarde échoue
+   * 
+   * @example
+   * const executionData = {
+   *   type: 'corporate',
+   *   totalProcessed: 15,
+   *   results: [...],
+   *   executionDate: new Date()
+   * };
+   * await monitoring.saveExecutionLog(executionData);
    */
   async saveExecutionLog(data) {
     if (!this.service.mongoConnected) return;
@@ -195,6 +406,27 @@ class Monitoring {
 
   /**
    * Sauvegarde les logs d'emails en MongoDB
+   * 
+   * Persiste les informations d'envoi d'emails pour le suivi et l'analyse
+   * des performances du système de notification.
+   * 
+   * @async
+   * @param {Object} emailData - Données d'email à sauvegarder
+   * @param {string} emailData.emailType - Type d'email envoyé
+   * @param {number} emailData.recipientCount - Nombre de destinataires
+   * @param {string} emailData.reimbursementId - ID du remboursement concerné
+   * @param {Date} emailData.timestamp - Timestamp d'envoi
+   * @returns {Promise<void>}
+   * @throws {Error} Si la sauvegarde échoue
+   * 
+   * @example
+   * const emailData = {
+   *   emailType: 'payment-reminder',
+   *   recipientCount: 3,
+   *   reimbursementId: 'RBT-001',
+   *   timestamp: new Date()
+   * };
+   * await monitoring.saveEmailLog(emailData);
    */
   async saveEmailLog(emailData) {
     if (!this.service.mongoConnected) return;
@@ -221,7 +453,22 @@ class Monitoring {
   }
 
   /**
-   * Génère un rapport de performance
+   * Génère un rapport de performance détaillé
+   * 
+   * Analyse les performances du système sur une période donnée
+   * et génère un rapport complet avec métriques et recommandations.
+   * 
+   * @async
+   * @param {number} [timeframe=86400000] - Période d'analyse en millisecondes (24h par défaut)
+   * @returns {Promise<PerformanceReport>} Rapport de performance complet
+   * @throws {Error} Si la génération du rapport échoue
+   * 
+   * @example
+   * // Rapport sur les dernières 6 heures
+   * const report = await monitoring.generatePerformanceReport(6 * 60 * 60 * 1000);
+   * console.log(`Période: ${report.timeframe.durationHours}h`);
+   * console.log(`Taux de succès: ${report.metrics.successRate}%`);
+   * console.log(`Jobs/heure: ${report.metrics.averageJobsPerHour}`);
    */
   async generatePerformanceReport(timeframe = 24 * 60 * 60 * 1000) {
     const endTime = new Date();
@@ -260,7 +507,13 @@ class Monitoring {
   }
 
   /**
-   * Calcule les métriques d'une queue
+   * Calcule les métriques détaillées d'une queue spécifique
+   * 
+   * @private
+   * @async
+   * @param {string} queueName - Nom de la queue
+   * @param {number} timeframe - Période d'analyse en millisecondes
+   * @returns {Promise<QueueMetrics|null>} Métriques de la queue
    */
   async getQueueMetrics(queueName, timeframe) {
     const queue = this.service.queues.get(queueName);
@@ -293,7 +546,10 @@ class Monitoring {
   }
 
   /**
-   * Calcule la moyenne de jobs par heure
+   * Calcule la moyenne de jobs traités par heure
+   * 
+   * @private
+   * @returns {number} Nombre moyen de jobs par heure
    */
   calculateAverageJobsPerHour() {
     const uptimeHours = (Date.now() - this.metrics.startTime.getTime()) / (1000 * 60 * 60);
@@ -302,7 +558,10 @@ class Monitoring {
   }
 
   /**
-   * Calcule le taux de succès
+   * Calcule le taux de succès global
+   * 
+   * @private
+   * @returns {number} Taux de succès en pourcentage
    */
   calculateSuccessRate() {
     const totalJobs = this.metrics.jobs.completed + this.metrics.jobs.failed;
@@ -310,7 +569,10 @@ class Monitoring {
   }
 
   /**
-   * Calcule le temps d'exécution moyen (estimation)
+   * Calcule le temps d'exécution moyen estimé
+   * 
+   * @private
+   * @returns {number} Temps d'exécution moyen en secondes
    */
   calculateAverageExecutionTime() {
     // Estimation basée sur le type de jobs
@@ -328,7 +590,20 @@ class Monitoring {
   }
 
   /**
-   * Génère des alertes automatiques basées sur les métriques
+   * Génère et vérifie les alertes automatiques basées sur les métriques
+   * 
+   * Analyse les métriques actuelles et génère des alertes si des seuils
+   * critiques sont dépassés.
+   * 
+   * @async
+   * @returns {Promise<Array<SystemAlert>>} Liste des alertes générées
+   * 
+   * @example
+   * const alerts = await monitoring.checkAndGenerateAlerts();
+   * alerts.forEach(alert => {
+   *   console.log(`[${alert.severity.toUpperCase()}] ${alert.message}`);
+   *   console.log(`Recommandation: ${alert.recommendation}`);
+   * });
    */
   async checkAndGenerateAlerts() {
     const alerts = [];
@@ -391,7 +666,21 @@ class Monitoring {
   }
 
   /**
-   * Démarre le monitoring automatique
+   * Démarre le monitoring automatique périodique
+   * 
+   * Lance une surveillance automatique qui vérifie les alertes et
+   * effectue le nettoyage à intervalles réguliers.
+   * 
+   * @param {number} [intervalMinutes=5] - Intervalle en minutes entre les vérifications
+   * @returns {void}
+   * 
+   * @example
+   * // Monitoring toutes les 10 minutes
+   * monitoring.startPeriodicMonitoring(10);
+   * 
+   * @example
+   * // Monitoring par défaut (5 minutes)
+   * monitoring.startPeriodicMonitoring();
    */
   startPeriodicMonitoring(intervalMinutes = 5) {
     setInterval(async () => {
@@ -412,6 +701,19 @@ class Monitoring {
 
   /**
    * Exporte les métriques au format Prometheus
+   * 
+   * Génère une chaîne de métriques compatible avec Prometheus
+   * pour l'intégration dans des systèmes de monitoring externes.
+   * 
+   * @returns {string} Métriques formatées pour Prometheus
+   * 
+   * @example
+   * const prometheusMetrics = monitoring.getPrometheusMetrics();
+   * console.log(prometheusMetrics);
+   * // # HELP reminder_service_uptime_seconds Uptime du service en secondes
+   * // # TYPE reminder_service_uptime_seconds gauge
+   * // reminder_service_uptime_seconds 3600
+   * // ...
    */
   getPrometheusMetrics() {
     const metrics = [];
@@ -452,7 +754,20 @@ class Monitoring {
   }
 
   /**
-   * Génère un dashboard simple en HTML
+   * Génère un dashboard HTML simple pour le monitoring visuel
+   * 
+   * Crée une page HTML avec les métriques principales et un rafraîchissement
+   * automatique pour le monitoring en temps réel.
+   * 
+   * @returns {string} Code HTML du dashboard
+   * 
+   * @example
+   * const dashboardHtml = monitoring.generateDashboardHTML();
+   * 
+   * // Servir le dashboard via Express
+   * app.get('/dashboard', (req, res) => {
+   *   res.send(dashboardHtml);
+   * });
    */
   generateDashboardHTML() {
     const stats = this.metrics;
