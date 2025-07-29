@@ -1,22 +1,26 @@
 {
-  "name": "bullmq_examples",
+  "name": "bullmq-examples",
   "version": "1.0.0",
+  "description": "BullMQ examples with modular architecture",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "test:email": "node lite/test-email-service.js"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "bullmq",
+    "queue",
+    "email",
+    "reminder"
+  ],
+  "author": "Flexmo Team",
   "license": "ISC",
-  "description": "",
   "dependencies": {
-    "@bull-board/api": "^6.12.0",
-    "@bull-board/express": "^6.12.0",
-    "bull-board": "^1.7.2",
-    "bullmq": "^5.56.8",
-    "dotenv": "^17.2.1",
-    "express": "^5.1.0",
-    "ioredis": "^5.6.1",
-    "mongoose": "^8.16.5"
+    "bullmq": "^4.0.0",
+    "dotenv": "^16.0.3",
+    "ejs": "^3.1.9",
+    "ioredis": "^5.0.0",
+    "mongoose": "^8.0.0",
+    "nodemailer": "^6.9.0"
   }
 }
