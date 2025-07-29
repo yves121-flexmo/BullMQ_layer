@@ -91,6 +91,17 @@
             font-weight: bold;
             color: #e53e3e;
         }
+        .contact-info {
+            background: #fff5f5;
+            border: 1px solid #feb2b2;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 5px;
+        }
+        .contact-info h3 {
+            margin-top: 0;
+            color: #e53e3e;
+        }
     </style>
 </head>
 <body>
@@ -166,11 +177,16 @@
     </p>
     <% } %>
 
-    <p>Si vous avez déjà effectué ce paiement, merci de nous communiquer immédiatement les détails du règlement (date et référence) aux coordonnées suivantes :</p>
-    <ul>
-        <li>Email : <%= typeof supportContact !== 'undefined' && supportContact.email ? supportContact.email : 'support@flexmo.com' %></li>
-        <li>Téléphone : <%= typeof supportContact !== 'undefined' && supportContact.phone ? supportContact.phone : '+33 1 23 45 67 89' %></li>
-    </ul>
+    <div class="contact-info">
+        <h3>Service de Recouvrement Flexmo</h3>
+        <p>Pour régulariser votre situation ou établir un plan de paiement, contactez-nous immédiatement :</p>
+        <ul>
+            <li>Email : contact@flexmo.app</li>
+            <li>Téléphone : +225 07 47 51 00 00</li>
+            <li>Horaires : 8h-18h GMT</li>
+            <li>Adresse : Abidjan, Côte d'Ivoire</li>
+        </ul>
+    </div>
 
     <% if (reimbursement.escalationContacts && reimbursement.escalationContacts.length > 0) { %>
     <p>Ce dossier a été transmis à :</p>
@@ -185,6 +201,7 @@
         <p>Ceci est une mise en demeure automatique. Merci de ne pas répondre directement à cet email.</p>
         <p>Les conditions de paiement fixées par Flexmo sont de 14 jours. Conformément à la Loi sur le Recouvrement des Créances Non Garanties 0000, nous nous réservons le droit d'engager une procédure de recouvrement si le paiement n'est pas reçu dans les 7 jours suivant cet avis.</p>
         <p>Si vous rencontrez des difficultés financières, nous vous invitons à nous contacter immédiatement pour discuter des modalités de paiement.</p>
+        <p>© <%= new Date().getFullYear() %> Flexmo. Tous droits réservés.</p>
     </div>
 </body>
 </html>

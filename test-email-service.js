@@ -5,22 +5,57 @@ const fs = require('fs').promises;
 
 // Configuration du service email
 const emailService = new EmailService({
-    from: process.env.GMAIL_USER || 'yves.lionel.diomande@gmail.com',
-    password: process.env.GMAIL_APP_PASSWORD, // À configurer dans .env
+    from: process.env.GMAIL_USER || 'contact@flexmo.app',
+    password: process.env.GMAIL_APP_PASSWORD,
     isProduction: process.env.NODE_ENV === 'production'
 });
 
-// Données de test
+// Données de test complètes
 const mockReimbursement = {
     id: 'RBT-2024-001',
     type: 'SALARY',
     amount: 1500.50,
     dueDate: '2024-02-15',
-    globalStatus: 'PENDING'
+    globalStatus: 'PENDING',
+    company: {
+        name: 'Tech Solutions SARL',
+        registrationNumber: 'CI-ABJ-2023-B-12345',
+        address: 'Cocody Riviera 3, Abidjan'
+    },
+    employee: {
+        name: 'Konan Marc',
+        position: 'Développeur Senior',
+        department: 'IT'
+    },
+    details: {
+        description: 'Remboursement salaire Janvier 2024',
+        category: 'Salaire mensuel',
+        paymentMethod: 'Virement bancaire',
+        bankInfo: {
+            bank: 'NSIA Banque',
+            accountNumber: 'CI040 01010 010101010101'
+        }
+    }
 };
 
 const mockDaysInfo = {
-    remainingDays: 5
+    remainingDays: 5,
+    dueDate: '15 Février 2024',
+    overdueDays: 0,
+    urgencyLevel: 'MEDIUM'
+};
+
+const mockCompanyInfo = {
+    name: 'Flexmo',
+    email: 'contact@flexmo.app',
+    phone: '+225 07 47 51 00 00',
+    address: 'Abidjan, Côte d\'Ivoire',
+    website: 'www.flexmo.app',
+    supportContact: {
+        email: 'contact@flexmo.app',
+        phone: '+225 07 47 51 00 00',
+        hours: '8h-18h GMT'
+    }
 };
 
 /**
@@ -34,26 +69,30 @@ async function testBeforeDueReminder() {
 
         // Configuration de l'email
         const emailOptions = {
-            to: 'yveslioneldiomande795@gmail.com',
-            subject: 'Test - Rappel de paiement',
+            to: ['yveslioneldiomande795@gmail.com', 'yves.lionel.diomande@gmail.com'],
+            subject: `Rappel de paiement - ${mockReimbursement.company.name} - Échéance dans ${mockDaysInfo.remainingDays} jours`,
             html: template.replace(/<%=\s*([^%>]+)\s*%>/g, (match, p1) => {
                 if (p1.includes('reimbursement.')) {
-                    const prop = p1.split('.')[1].trim();
-                    return mockReimbursement[prop];
+                    const props = p1.split('.').slice(1);
+                    return props.reduce((obj, prop) => obj?.[prop], mockReimbursement) || '';
                 }
                 if (p1.includes('daysInfo.')) {
                     const prop = p1.split('.')[1].trim();
                     return mockDaysInfo[prop];
                 }
+                if (p1.includes('company.')) {
+                    const prop = p1.split('.')[1].trim();
+                    return mockCompanyInfo[prop];
+                }
                 if (p1.includes('recipient.name')) {
-                    return 'Yves Lionel';
+                    return mockReimbursement.employee.name;
                 }
                 if (p1.includes('supportContact')) {
-                    return 'support@flexmo.com';
+                    return mockCompanyInfo.supportContact.email;
                 }
                 return '';
             }),
-            text: `Rappel de paiement pour le remboursement ${mockReimbursement.id}`
+            text: `Rappel de paiement pour le remboursement ${mockReimbursement.id} - ${mockReimbursement.company.name} - Montant: ${mockReimbursement.amount} EUR - Échéance: ${mockDaysInfo.dueDate}`
         };
 
         // Envoi de l'email

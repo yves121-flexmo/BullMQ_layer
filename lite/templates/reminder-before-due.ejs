@@ -71,6 +71,17 @@
             font-weight: bold;
             background-color: #f7fafc;
         }
+        .contact-info {
+            background: #f7fafc;
+            border: 1px solid #e2e8f0;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 5px;
+        }
+        .contact-info h3 {
+            margin-top: 0;
+            color: #2c5282;
+        }
     </style>
 </head>
 <body>
@@ -118,15 +129,21 @@
 
     <p>Si vous avez déjà effectué ce paiement, veuillez ne pas tenir compte de ce rappel et accepter nos remerciements.</p>
 
-    <p>Pour toute question ou préoccupation concernant ce paiement, n'hésitez pas à nous contacter :</p>
-    <ul>
-        <li>Email : <%= typeof supportContact !== 'undefined' && supportContact.email ? supportContact.email : 'support@flexmo.com' %></li>
-        <li>Téléphone : <%= typeof supportContact !== 'undefined' && supportContact.phone ? supportContact.phone : '+33 1 23 45 67 89' %></li>
-    </ul>
+    <div class="contact-info">
+        <h3>Nous contacter</h3>
+        <p>Pour toute question ou préoccupation concernant ce paiement, notre équipe est à votre disposition :</p>
+        <ul>
+            <li>Email : contact@flexmo.app</li>
+            <li>Téléphone : +225 07 47 51 00 00</li>
+            <li>Horaires : 8h-18h GMT</li>
+            <li>Adresse : Abidjan, Côte d'Ivoire</li>
+        </ul>
+    </div>
 
     <div class="footer">
         <p>Ceci est un rappel automatique. Merci de ne pas répondre directement à cet email.</p>
         <p>Les conditions de paiement fixées par Flexmo sont de 14 jours. Il est important de noter que conformément à la Loi sur le Recouvrement des Créances Non Garanties 0000, les prestataires indépendants disposent d'un droit de recours en cas de non-paiement après ce délai.</p>
+        <p>© <%= new Date().getFullYear() %> Flexmo. Tous droits réservés.</p>
     </div>
 </body>
 </html>
