@@ -1,126 +1,132 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Rappel - Échéance de remboursement</title>
+    <meta charset="utf-8">
     <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { background: #FF9800; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
-        .content { background: #fff3cd; padding: 30px; border: 1px solid #ffeaa7; border-radius: 0 0 8px 8px; }
-        .alert { background: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 4px; margin: 20px 0; }
-        .reimbursement-details { background: white; padding: 20px; border-radius: 4px; margin: 20px 0; border-left: 4px solid #FF9800; }
-        .button { display: inline-block; background: #FF9800; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; margin: 20px 0; }
-        .footer { text-align: center; margin-top: 20px; font-size: 12px; color: #666; }
-        .urgency-high { color: #e74c3c; font-weight: bold; }
-        .urgency-medium { color: #f39c12; font-weight: bold; }
-        .urgency-low { color: #27ae60; }
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            border-bottom: 2px solid #2c5282;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }
+        .company-name {
+            color: #2c5282;
+            font-size: 24px;
+            font-weight: bold;
+        }
+        .payment-details {
+            background: #f7fafc;
+            border: 1px solid #e2e8f0;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 5px;
+        }
+        .amount {
+            font-size: 18px;
+            font-weight: bold;
+            color: #2c5282;
+        }
+        .due-date {
+            color: #e53e3e;
+            font-weight: bold;
+        }
+        .cta-button {
+            display: inline-block;
+            background-color: #2c5282;
+            color: white;
+            padding: 12px 24px;
+            text-decoration: none;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .footer {
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #e2e8f0;
+            font-size: 14px;
+            color: #666;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        th {
+            background-color: #f7fafc;
+            font-weight: bold;
+        }
+        .summary-row {
+            font-weight: bold;
+            background-color: #f7fafc;
+        }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>⏰ Rappel d'échéance</h1>
-        </div>
-        
-        <div class="content">
-            <% if (recipient && recipient.name) { %>
-            <p>Bonjour <strong><%= recipient.name %></strong>,</p>
-            <% } else { %>
-            <p>Bonjour,</p>
-            <% } %>
-            
-            <div class="alert">
-                <% if (daysInfo && daysInfo.remainingDays <= 1) { %>
-                <p class="urgency-high">🚨 <strong>URGENT :</strong> Votre remboursement arrive à échéance <strong>demain</strong> !</p>
-                <% } else if (daysInfo && daysInfo.remainingDays <= 3) { %>
-                <p class="urgency-high">⚠️ <strong>ATTENTION :</strong> Votre remboursement arrive à échéance dans <strong><%= daysInfo.remainingDays %> jours</strong>.</p>
-                <% } else if (daysInfo && daysInfo.remainingDays <= 7) { %>
-                <p class="urgency-medium">📅 Votre remboursement arrive à échéance dans <strong><%= daysInfo.remainingDays %> jours</strong>.</p>
-                <% } else { %>
-                <p class="urgency-low">📋 Rappel : Votre remboursement arrive à échéance dans <strong><%= daysInfo.remainingDays %> jours</strong>.</p>
-                <% } %>
-            </div>
-            
-            <% if (reimbursement) { %>
-            <div class="reimbursement-details">
-                <h3>📄 Détails du remboursement</h3>
-                
-                <% if (reimbursement.id) { %>
-                <p><strong>Référence :</strong> <%= reimbursement.id %></p>
-                <% } %>
-                
-                <% if (reimbursement.type) { %>
-                <p><strong>Type :</strong> <%= reimbursement.type === 'SALARY' ? 'Salaire' : reimbursement.type === 'TREASURY' ? 'Trésorerie' : reimbursement.type %></p>
-                <% } %>
-                
-                <% if (reimbursement.amount) { %>
-                <p><strong>Montant :</strong> <span style="font-size: 1.2em; color: #2196F3;"><%= reimbursement.amount.toLocaleString('fr-FR') %>€</span></p>
-                <% } %>
-                
-                <% if (reimbursement.dueDate) { %>
-                <p><strong>Date d'échéance :</strong> <span style="color: #e74c3c;"><%= new Date(reimbursement.dueDate).toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) %></span></p>
-                <% } %>
-                
-                <% if (reimbursement.description) { %>
-                <p><strong>Description :</strong> <%= reimbursement.description %></p>
-                <% } %>
-                
-                <% if (reimbursement.beneficiary) { %>
-                <p><strong>Bénéficiaire :</strong> <%= reimbursement.beneficiary %></p>
-                <% } %>
-                
-                <% if (reimbursement.globalStatus) { %>
-                <p><strong>Statut :</strong> 
-                    <% if (reimbursement.globalStatus === 'PENDING') { %>
-                    <span style="color: #f39c12;">🟡 En attente</span>
-                    <% } else if (reimbursement.globalStatus === 'OVERDUE') { %>
-                    <span style="color: #e74c3c;">🔴 En retard</span>
-                    <% } else { %>
-                    <span><%= reimbursement.globalStatus %></span>
-                    <% } %>
-                </p>
-                <% } %>
-            </div>
-            <% } %>
-            
-            <h3>📋 Actions requises</h3>
-            <ul>
-                <li>✅ Vérifiez les détails du remboursement</li>
-                <li>💰 Préparez le paiement</li>
-                <li>📧 Confirmez la réception de ce rappel</li>
-                <% if (daysInfo && daysInfo.remainingDays <= 3) { %>
-                <li>🚨 <strong>Contactez immédiatement votre responsable financier</strong></li>
-                <% } %>
-            </ul>
-            
-            <% if (reimbursement && reimbursement.paymentUrl) { %>
-            <p style="text-align: center;">
-                <a href="<%= reimbursement.paymentUrl %>" class="button">Effectuer le paiement</a>
-            </p>
-            <% } %>
-            
-            <% if (reimbursement && reimbursement.contactUrl) { %>
-            <p style="text-align: center;">
-                <a href="<%= reimbursement.contactUrl %>" class="button" style="background: #2196F3;">Contacter le support</a>
-            </p>
-            <% } %>
-            
-            <div class="alert">
-                <p><strong>⚠️ Important :</strong> Ce rappel est automatique. Si vous avez déjà effectué le paiement, veuillez ignorer ce message.</p>
-            </div>
-            
-            <p>Pour toute question ou assistance, n'hésitez pas à contacter notre équipe finance.</p>
-            
-            <p>Cordialement,<br>
-            <strong>L'équipe Finance</strong></p>
-        </div>
-        
-        <div class="footer">
-            <p>© <%= new Date().getFullYear() %> - Système de rappels automatique</p>
-            <p>Ce message a été envoyé automatiquement, merci de ne pas répondre directement.</p>
-        </div>
+    <div class="header">
+        <div class="company-name">RAPPEL DE PAIEMENT</div>
+        <p>Référence : <%= reimbursement.id %></p>
+    </div>
+
+    <p>Cher/Chère <%= recipient.name %>,</p>
+
+    <p>Nous vous adressons ce rappel concernant une échéance de paiement à venir pour le remboursement référence <%= reimbursement.id %>.</p>
+
+    <div class="payment-details">
+        <table>
+            <tr>
+                <td><strong>Identifiant :</strong></td>
+                <td><%= reimbursement.id %></td>
+            </tr>
+            <tr>
+                <td><strong>Type :</strong></td>
+                <td><%= reimbursement.type === 'SALARY' ? 'Salaire' : reimbursement.type === 'TREASURY' ? 'Trésorerie' : reimbursement.type %></td>
+            </tr>
+            <tr>
+                <td><strong>Date d'échéance :</strong></td>
+                <td class="due-date"><%= new Date(reimbursement.dueDate).toLocaleDateString('fr-FR', { year: 'numeric', month: 'long', day: 'numeric' }) %></td>
+            </tr>
+            <tr>
+                <td><strong>Jours restants :</strong></td>
+                <td><%= daysInfo.remainingDays %> jours</td>
+            </tr>
+            <tr>
+                <td><strong>Montant dû :</strong></td>
+                <td class="amount"><%= new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(reimbursement.amount) %></td>
+            </tr>
+        </table>
+    </div>
+
+    <p>Nous vous prions de bien vouloir effectuer le paiement avant la date d'échéance afin d'éviter des pénalités de retard. Conformément à nos conditions, tout paiement non reçu dans les 14 jours suivant l'échéance pourra entraîner des frais supplémentaires et des intérêts de retard.</p>
+
+    <% if (reimbursement.paymentUrl) { %>
+    <p>
+        <a href="<%= reimbursement.paymentUrl %>" class="cta-button">Effectuer le paiement maintenant</a>
+    </p>
+    <% } %>
+
+    <p>Si vous avez déjà effectué ce paiement, veuillez ne pas tenir compte de ce rappel et accepter nos remerciements.</p>
+
+    <p>Pour toute question ou préoccupation concernant ce paiement, n'hésitez pas à nous contacter :</p>
+    <ul>
+        <li>Email : <%= typeof supportContact !== 'undefined' && supportContact.email ? supportContact.email : 'support@flexmo.com' %></li>
+        <li>Téléphone : <%= typeof supportContact !== 'undefined' && supportContact.phone ? supportContact.phone : '+33 1 23 45 67 89' %></li>
+    </ul>
+
+    <div class="footer">
+        <p>Ceci est un rappel automatique. Merci de ne pas répondre directement à cet email.</p>
+        <p>Les conditions de paiement fixées par Flexmo sont de 14 jours. Il est important de noter que conformément à la Loi sur le Recouvrement des Créances Non Garanties 0000, les prestataires indépendants disposent d'un droit de recours en cas de non-paiement après ce délai.</p>
     </div>
 </body>
 </html>
